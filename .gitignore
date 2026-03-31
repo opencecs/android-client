@@ -40,6 +40,7 @@ player/native/build-win64-static/
 # RPA 临时文件
 rpa/libmytrpc/st*
 *.md
+!README.md
 player
 *.exe
 camdemo
