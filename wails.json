@@ -1,0 +1,28 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "edgeclient",
+  "outputfilename": "edgeclient",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "debug": {
+    "devtools": true
+  },
+  "author": {
+    "name": "Willzen",
+    "email": "willzen@yeah.net"
+  },
+  "icons": {
+    "windows": {
+      "ico": "logo.ico",
+      "ico:maskable": "logo.ico"
+    },
+    "darwin": {
+      "icns": "build/darwin/icon.icns"
+    },
+    "linux": {
+      "icns": "build/linux/icon.icns"
+    }
+  }
+}

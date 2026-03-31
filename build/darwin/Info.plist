@@ -1,0 +1,27 @@
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>CFBundlePackageType</key>
+            <string>APPL</string>
+        <key>CFBundleName</key>
+            <string>MYT V3</string>
+        <key>CFBundleExecutable</key>
+            <string>MYTV3</string>
+        <key>CFBundleIdentifier</key>
+            <string>com.MYT.v3</string>
+        <key>CFBundleVersion</key>
+            <string>1.1.0</string>
+        <key>CFBundleGetInfoString</key>
+            <string>魔云腾V3客户端</string>
+        <key>CFBundleShortVersionString</key>
+            <string>1.1.0</string>
+        <key>CFBundleIconFile</key>
+            <string>icons</string>
+        <key>LSMinimumSystemVersion</key>
+            <string>10.13.0</string>
+        <key>NSHighResolutionCapable</key>
+            <string>true</string>
+        <key>NSHumanReadableCopyright</key>
+            <string>© 2026, Wuhan MYT Network Ltd.co</string>
+    </dict>
+</plist>

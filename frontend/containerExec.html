@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>MYT Web Terminal</title>
+  <!-- 这里假设你已经按上面的步骤把 css/js 存到本地了 -->
+  <link rel="stylesheet" href="/resource/css/xterm.css" />
+  <style>
+    body { margin: 0; padding: 0; background-color: #1e1e1e; height: 100vh; font-family: sans-serif; overflow: hidden; }
+    #terminal { width: 100%; height: 100%; display: none; }
+    #login-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8);
+      display: flex; justify-content: center; align-items: center; z-index: 999;
+    }
+    .login-box {
+      background: #fff; padding: 30px; border-radius: 8px; width: 350px;
+    }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; color: #666; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; box-sizing: border-box; }
+    .btn { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<div id="login-overlay">
+  <div class="login-box">
+    <h2 style="text-align:center">Docker Console</h2>
+    <div class="form-group">
+      <label>容器 ID 或 名称</label>
+      <input type="text" id="containerId" placeholder="例如: T1001">
+    </div>
+    <div class="form-group">
+      <label>Shell 程序</label>
+      <select id="shell">
+        <option value="/bin/sd">/bin/sd</option>
+        <option value="/bin/bash">/bin/bash</option>
+        <option value="/bin/sh">/bin/sh</option>
+      </select>
+    </div>
+    <button class="btn" onclick="connectDocker()">连 接</button>
+  </div>
+</div>
+
+<div id="terminal"></div>
+
+<script src="/resource/js/xterm.js"></script>
+<script src="/resource/js/xterm-addon-fit.js"></script>
+
+<script>
+  let term, socket, fitAddon, heartbeatTimer;
+
+  // 解析 URL 参数
+  function getUrlParams() {
+    const params = {};
+    const urlParams = new URLSearchParams(window.location.search);
+    for (const [key, value] of urlParams.entries()) {
+      params[key] = value;
+    }
+    return params;
+  }
+
+  // 自动连接终端
+  function autoConnect() {
+    const params = getUrlParams();
+    const cid = params.containerId || document.getElementById('containerId').value;
+    const shell = params.shell || document.getElementById('shell').value;
+    const deviceIp = params.deviceIp;
+    
+    if (!cid) return alert("请输入容器ID");
+    if (!deviceIp) return alert("未获取到设备IP");
+
+    document.getElementById('login-overlay').style.display = 'none';
+    document.getElementById('terminal').style.display = 'block';
+
+    // 初始化 Xterm
+    term = new Terminal({ cursorBlink: true, theme: { background: '#0c0c0c' } });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+    term.focus();
+
+    // 连接 WebSocket - 使用设备 IP + 8000 端口
+    const wsProtocol = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const wsUrl = `${wsProtocol}${deviceIp}:8000/link/exec`;
+    socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => {
+      socket.binaryType = 'arraybuffer'
+      term.write('\r\n\x1b[32m正在连接 Docker Daemon...\x1b[0m\r\n');
+
+      // 发送登录指令
+      sendJson({
+        type: "login",
+        container_id: cid,
+        shell: shell
+      });
+
+      sendResize();
+
+      // 心跳
+      heartbeatTimer = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) sendJson({ type: "heartbeat" });
+      }, 30000);
+    };
+
+    socket.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(event.data));
+      } else {
+        // 兼容旧的文本模式（以防万一）
+        term.write(event.data);
+      }
+    };
+    socket.onclose = () => {
+      term.write('\r\n\x1b[31m连接已断开\x1b[0m\r\n');
+      clearInterval(heartbeatTimer);
+    };
+
+    // 输入监听
+    term.onData(data => sendJson({ type: "stdin", data: data }));
+
+    // 窗口调整
+    window.onresize = () => {
+      fitAddon.fit();
+      sendResize();
+    };
+  }
+
+  function connectDocker() {
+    autoConnect();
+  }
+
+  // 页面加载时自动连接（如果有URL参数）
+  window.addEventListener('DOMContentLoaded', () => {
+    const params = getUrlParams();
+    if (params.containerId && params.deviceIp) {
+      // 如果有URL参数，自动填充表单并连接
+      document.getElementById('containerId').value = params.containerId;
+      if (params.shell) {
+        document.getElementById('shell').value = params.shell;
+      }
+      // 自动连接
+      autoConnect();
+    }
+  });
+
+  function sendJson(obj) {
+    if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(obj));
+  }
+
+  function sendResize() {
+    if (fitAddon && term && socket.readyState === WebSocket.OPEN) {
+      const dims = fitAddon.proposeDimensions();
+      if (dims) {
+        sendJson({ type: "resize", cols: dims.cols, rows: dims.rows });
+      }
+    }
+  }
+</script>
+</body>
+</html>

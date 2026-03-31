@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, height=device-height, user-scalable=no, initial-scale=1, minimum-scale=1, maximum-scale=1">
+    <title>魔云腾</title>
+    
+    <!-- Wails V3 兼容性层 - 子窗口通过 BroadcastChannel 与主窗口通信 -->
+    <script type="module">
+        // 创建与主窗口通信的频道
+        const ipcChannel = new BroadcastChannel('wails-ipc-child');
+        
+        // 封装调用主窗口函数的方法
+        window.callMainWindow = async (funcName, args = {}) => {
+            return new Promise((resolve, reject) => {
+                const requestId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+                
+                ipcChannel.postMessage({
+                    type: 'ipc-request',
+                    funcName: funcName,
+                    args: args,
+                    requestId: requestId
+                });
+                
+                const timeout = setTimeout(() => {
+                    reject(new Error('IPC timeout'));
+                }, 10000);
+                
+                const handler = (event) => {
+                    if (event.data && event.data.type === 'ipc-response' && event.data.requestId === requestId) {
+                        clearTimeout(timeout);
+                        ipcChannel.removeEventListener('message', handler);
+                        if (event.data.error) {
+                            reject(new Error(event.data.error));
+                        } else {
+                            resolve(event.data.result);
+                        }
+                    }
+                };
+                
+                ipcChannel.addEventListener('message', handler);
+            });
+        };
+        
+        // 便捷函数：置顶窗口
+        window.ToggleProjectionWindowTop = async (windowID) => {
+            return window.callMainWindow('ToggleProjectionWindowTop', windowID);
+        };
+        
+        // 便捷函数：排列窗口
+        window.ArrangeProjectionWindows = async (params) => {
+            return window.callMainWindow('ArrangeProjectionWindows', params);
+        };
+        
+        console.log('[Wails V3] 子窗口通信层初始化完成');
+        
+        // 通知主窗口已就绪
+        setTimeout(() => {
+            console.log('[Wails V3] 子窗口已就绪');
+        }, 500);
+    </script>
+    
+    <style>
+		body{
+			background-color:#000;
+			margin: 0;
+			padding: 0;
+			height: 100vh;
+			overflow: hidden;
+		}
+		*{
+			padding: 0;
+			margin: 0;
+			box-sizing: border-box;
+		}
+		
+		/* 主容器布局 - 使用绝对定位 */
+		#assistDiv {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100vw;
+			height: 100vh;
+			z-index: 50;
+		}
+		
+		/* 视频容器 - 调整高度，留出底部控制栏空间 */
+		#container {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: calc(100vw - 42px);
+			height: calc(100vh - 52px);
+			background-color: #000;
+			z-index: 10;
+			overflow: hidden;
+		}
+		
+		/* 视频样式 */
+		video {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			object-fit: contain;
+			display: block;
+			z-index: 100;
+			opacity: 1;
+		}
+		
+		/* UI容器 - 透明背景，不遮挡视频 */
+		#uicontainer {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: calc(100vw - 42px);
+			height: calc(100vh - 52px);
+			background: transparent !important;
+			z-index: 50;
+			pointer-events: none;
+		}
+		
+		/* 右侧侧栏 */
+		.assistivetouch-menu-main {
+			position: fixed !important;
+			top: 0 !important;
+			right: 0 !important;
+			width: 42px !important;
+			height: calc(100vh) !important;
+			background: rgba(0, 0, 0, 0.9) !important;
+			display: flex !important;
+			flex-flow: column nowrap !important;
+			justify-content: flex-start !important;
+			align-items: center !important;
+			padding: 15px 0 !important;
+			gap: 8px !important;
+			border: 2px solid rgba(255, 255, 255, 0.3) !important;
+			border-right: none !important;
+			border-left: none !important;
+			box-shadow: -2px 0 10px rgba(0,0,0,0.5) !important;
+			z-index: 20 !important;
+			touch-action: none !important;
+		}
+		
+		.assistivetouch-menu-item {
+			color: white;
+			cursor: pointer;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			margin: 6px 0;
+			width: 32px;
+			height: 32px;
+			justify-content: center;
+			border-radius: 6px;
+			transition: all 0.2s;
+			background: rgba(255, 255, 255, 0.1);
+			position: static !important;
+			transform: none !important;
+			left: auto !important;
+			top: auto !important;
+		}
+		
+		.assistivetouch-menu-item:hover {
+			background-color: rgba(255, 255, 255, 0.3);
+			transform: scale(1.05);
+		}
+		
+		.assistivetouch-menu-item > label {
+			font-size: 11px;
+			font-family: "Product Sans", Arial, Helvetica, sans-serif;
+			margin-top: 4px;
+		}
+		
+		/* 底部控制栏 - 确保在视频区域下方，不遮挡视频 */
+		.bottom-controls {
+			position: absolute;
+			bottom: 0;
+			left: 0;
+			width: 100%;
+			height: 42px;
+			z-index: 15;
+			display: flex;
+			flex-direction: row;
+			justify-content: center;
+			align-items: flex-end;
+			background: rgba(0, 0, 0, 0.9);
+			border-radius: 0;
+			padding: 0;
+			border: 2px solid rgba(255, 255, 255, 0.3);
+			border-bottom: none;
+			border-top: none;
+			box-shadow: 0 -2px 10px rgba(0,0,0,0.5);
+		}
+		
+		.bottom-controls-center {
+			display: flex;
+			flex-direction: row;
+			justify-content: center;
+			align-items: center;
+			gap: 12px;
+		}
+		
+		.bottom-control-item {
+			color: white;
+			cursor: pointer;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			width: 35px;
+			height: 35px;
+			border-radius: 6px;
+			transition: all 0.2s;
+			background: rgba(255, 255, 255, 0.1);
+		}
+		
+		.bottom-control-item:hover {
+			background-color: rgba(255, 255, 255, 0.3);
+			transform: scale(1.05);
+		}
+		
+		/* 置顶按钮激活状态 */
+		#ctr_topmost[state="1"] {
+			background-color: rgba(255, 215, 0, 0.5) !important;
+		}
+		
+		#ctr_topmost[state="1"]:hover {
+			background-color: rgba(255, 215, 0, 0.7) !important;
+		}
+	</style>
+</head>
+
+<body class="webpBack">
+<div id="root">
+	<script type="text/javascript" src="/webplayer/js/adapter-latest.js"></script>
+	<script type="text/javascript" src="/webplayer/js/jquery-3.2.1.min.js"></script>
+	<script type="text/javascript" src="/webplayer/js/h5.lgair.wt.all.min-2.3.js"></script>
+	<div id="assistDiv">
+		<!-- 视频区域 -->
+		<div id="container"></div>
+		<div id="uicontainer"></div>
+		
+		<!-- 右侧侧栏 - 只保留声音、全屏、画质控制 -->
+		<div class="assistivetouch-menu-main">
+			<div id="ctr_audio" class="assistivetouch-menu-item" state="0">
+				<svg id="s_audio" stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 512 512" height="2em" width="2em" xmlns="http://www.w3.org/2000/svg">
+					<path d="M64 192v128h85.334L256 431.543V80.458L149.334 192H64zm288 64c0-38.399-21.333-72.407-53.333-88.863v176.636C330.667 328.408 352 294.4 352 256zM298.667 64v44.978C360.531 127.632 405.334 186.882 405.334 256c0 69.119-44.803 128.369-106.667 147.022V448C384 428.254 448 349.257 448 256c0-93.256-64-172.254-149.333-192z"></path>
+				</svg>
+				<label>声音</label>
+			</div>
+			<div id="ctr_topmost" class="assistivetouch-menu-item" state="0" title="窗口置顶">
+				<svg id="s_topmost" stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 24 24" height="2em" width="2em" xmlns="http://www.w3.org/2000/svg">
+					<path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/>
+					<rect x="6" y="2" width="12" height="4" fill="none" stroke="currentColor" stroke-width="1.5"/>
+				</svg>
+				<label>置顶</label>
+			</div>
+			<div id="ctr_arrange" class="assistivetouch-menu-item" state="0" title="排列窗口">
+				<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 24 24" height="2em" width="2em" xmlns="http://www.w3.org/2000/svg">
+					<rect x="3" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+					<rect x="14" y="3" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+					<rect x="3" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+					<rect x="14" y="14" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+				</svg>
+				<label>排列</label>
+			</div>
+			<div id="ctr_fullscreen" class="assistivetouch-menu-item" state="0">
+				<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 512 512" height="2em" width="2em" xmlns="http://www.w3.org/2000/svg">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M432 320v112H320M421.8 421.77L304 304M80 192V80h112M90.2 90.23L208 208M320 80h112v112M421.77 90.2L304 208M192 432H80V320M90.23 421.8L208 304"></path>
+				</svg>
+				<label id="fullscreen_lb">全屏</label>
+			</div>
+			<div id="ctr_quality" class="assistivetouch-menu-item" state="2">
+				<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 1024 1024" height="2em" width="2em" xmlns="http://www.w3.org/2000/svg">
+					<path d="M637.216 435.84a42.784 42.784 0 1 0-85.552-0.016 42.784 42.784 0 0 0 85.552 0z m48 0a90.784 90.784 0 1 1-181.552 0 90.784 90.784 0 0 1 181.552 0zM299.792 674.976l-11.76-10.848a16 16 0 0 1-0.896-22.608l128.352-139.072a16 16 0 0 1 23.072-0.448l113.808 113.92 70.896-64.752a16 16 0 0 1 22.176 0.576l88.4 89.552a16 16 0 0 1-0.16 22.64l-11.36 11.232a16 16 0 0 1-22.64-0.16l-66.768-67.632-70.768 64.624a16 16 0 0 1-22.112-0.512l-111.872-112-105.76 114.576a16 16 0 0 1-22.608 0.912zM240 734.608h530.784V304H240v430.608zM818.784 272v494.608a16 16 0 0 1-16 16H208a16 16 0 0 1-16-16V272a16 16 0 0 1 16-16h594.784a16 16 0 0 1 16 16z" p-id="1584"></path>
+				</svg>
+				<label id="quality_lb">画质</label>
+			</div>
+		</div>
+		
+		<!-- 底部控制栏 - 加速、主页、返回按钮居中显示 -->
+		<div id="bottom-controls" class="bottom-controls">
+			<div class="bottom-controls-center">
+				<div id="ctr_goClean" class="bottom-control-item" title="清理加速">
+					<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 1024 1024" height="1.5em" width="1.5em" xmlns="http://www.w3.org/2000/svg">
+						<path d="M395.765333 586.570667h-171.733333c-22.421333 0-37.888-22.442667-29.909333-43.381334L364.768 95.274667A32 32 0 0 1 394.666667 74.666667h287.957333c22.72 0 38.208 23.018667 29.632 44.064l-99.36 243.882666h187.050667c27.509333 0 42.186667 32.426667 24.042666 53.098667l-458.602666 522.56c-22.293333 25.408-63.626667 3.392-54.976-29.28l85.354666-322.421333zM416.714667 138.666667L270.453333 522.581333h166.869334a32 32 0 0 1 30.933333 40.181334l-61.130667 230.954666 322.176-367.114666H565.312c-22.72 0-38.208-23.018667-29.632-44.064l99.36-243.882667H416.714667z" p-id="9668"></path>
+					</svg>
+				</div>
+				<div id="ctr_goHome" class="bottom-control-item" title="主页">
+					<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 1024 1024" height="1.5em" width="1.5em" xmlns="http://www.w3.org/2000/svg">
+						<path d="M267.168 454.624v316.48h152V598.224c0-6.144 4.992-11.12 11.136-11.12h169.728c6.16 0 11.136 4.976 11.136 11.12v172.88h136V453.6l-239.36-188.848-240.64 189.856z m-48 37.872l-39.36 31.04a16 16 0 0 1-22.464-2.656l-9.904-12.56a16 16 0 0 1 2.656-22.464l347.792-274.416a16 16 0 0 1 19.84 0l347.792 274.4a16 16 0 0 1 2.656 22.48l-9.92 12.56a16 16 0 0 1-22.464 2.656l-40.624-32.048v292.48a35.136 35.136 0 0 1-35.136 35.136H254.304a35.136 35.136 0 0 1-35.136-35.136V492.496z m248 270.608h96v-128h-96v128z" p-id="5328"></path>
+					</svg>
+				</div>
+				<div id="ctr_goBack" class="bottom-control-item" title="返回">
+					<svg stroke="currentColor" fill="currentColor" stroke-width="0" viewbox="0 0 1024 1024" height="1.5em" width="1.5em" xmlns="http://www.w3.org/2000/svg">
+						<path d="M538.288 198.624l-11.312-11.312a16 16 0 0 0-22.64 0L187.312 504.336a16 16 0 0 0 0 22.64L504.336 844a16 16 0 0 0 22.64 0l11.312-11.312a16 16 0 0 0 0-22.624l-294.4-294.4 294.4-294.4a16 16 0 0 0 0-22.64z" p-id="6098"></path>
+					</svg>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<div id="splash" class="splash"></div>
+<script>
+var wheelState = {
+    accumulatedDelta: 0,
+    accumulatedDistance: 0,
+    lastDirection: 0,
+    scrollCount: 0,
+    lastX: 0,
+    lastY: 0,
+    timer: null,
+    baseDistance: 60,
+    minDistance: 10
+};
+
+function getWheelDistance() {
+    var count = Math.min(wheelState.scrollCount, 5);
+    return count * 10;//Math.max(wheelState.baseDistance - count * 10, wheelState.minDistance);
+}
+
+function sendWheelScroll(direction, totalDistance, x, y) {
+    if (!window.h5_lgair || !window.h5_lgair.fun_send_data_multi || !window.h5_lgair.trans_xy) {
+        console.log('h5_lgair not ready');
+        return;
+    }
+    try {
+        var canvasEl = document.getElementById(window.h5_lgair.Canvas_id);
+        var rect = canvasEl.getBoundingClientRect();
+        var scrollDistance = direction * totalDistance;
+        var lg = window.h5_lgair;
+        var screenX = Math.round(x - rect.left);
+        var screenY = Math.round(y - rect.top);
+        var screenW = Math.round(rect.width);
+        var screenH = Math.round(rect.height);
+        var startPos = lg.trans_xy(x, y);
+        var endPos, startY, endY;
+        if (lg.be_Rotate) {
+            endX = startPos.x - scrollDistance;
+            endX = Math.max(0, Math.min(endX, lg.Canvas_width - 1));
+            endPos = {x: endX, y: startPos.y};
+        } else {
+            endY = startPos.y + scrollDistance;
+            endY = Math.max(0, Math.min(endY, lg.Canvas_height - 1));
+            endPos = {x: startPos.x, y: endY};
+        }
+        var startData = {
+            type: lg.SDL_EVENT_MSGTYPE_POINTSCLICK,
+            data: {
+                points: 1,
+                action: lg.ACTION_POINTER_DOWN,
+                nid: 0,
+                p: [{x: startPos.x, y: startPos.y, id: 0}],
+                sw: lg.Canvas_width,
+                sh: lg.Canvas_height
+            }
+        };
+        var stepCount = 6;
+        var stepDelay = 10;
+        var endCoord = lg.be_Rotate ? endPos.x : endPos.y;
+        var startCoord = lg.be_Rotate ? startPos.x : startPos.y;
+        var stepSize = (endCoord - startCoord) / stepCount;
+        lg.fun_send_data_multi(startData);
+        for (var i = 1; i <= stepCount; i++) {
+            (function(index) {
+                setTimeout(function() {
+                    var currentCoord = Math.round(startCoord + stepSize * index);
+                    lg.fun_send_data_multi({
+                        type: lg.SDL_EVENT_MSGTYPE_POINTSCLICK,
+                        data: {
+                            points: 1,
+                            action: lg.ACTION_MOVE,
+                            nid: 0,
+                            p: [{x: lg.be_Rotate ? currentCoord : startPos.x, y: lg.be_Rotate ? startPos.y : currentCoord, id: 0}],
+                            sw: lg.Canvas_width,
+                            sh: lg.Canvas_height
+                        }
+                    });
+                }, index * stepDelay);
+            })(i);
+        }
+        setTimeout(function() {
+            lg.fun_send_data_multi({
+                type: lg.SDL_EVENT_MSGTYPE_POINTSCLICK,
+                data: {
+                    points: 0,
+                    action: lg.ACTION_POINTER_UP,
+                    nid: 0,
+                    p: [{x: endPos.x, y: endPos.y, id: 0}],
+                    sw: lg.Canvas_width,
+                    sh: lg.Canvas_height
+                }
+            });
+        }, (stepCount + 1) * stepDelay);
+        console.log('Wheel scroll:', {
+            mouse: {x: x, y: y, screenX: screenX, screenY: screenY, screenW: screenW, screenH: screenH},
+            rotate: lg.be_Rotate,
+            lgCanvas: {w: lg.Canvas_width, h: lg.Canvas_height},
+            start: startPos,
+            end: endPos,
+            distance: scrollDistance
+        });
+    } catch(e) {
+        console.log('Wheel error:', e);
+    }
+ }
+
+document.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    window.h5_lgair && window.h5_lgair.sendCmdEvent && window.h5_lgair.sendCmdEvent("goBack");
+ });
+
+ function initWheelHandler() {
+    if (!window.h5_lgair || !window.h5_lgair.trans_xy) {
+        setTimeout(initWheelHandler, 100);
+        return;
+    }
+    wheelState.wheelHandler = function(e) {
+        e.preventDefault();
+        var now = Date.now();
+        var delta = e.deltaY > 0 ? 1 : -1;
+        wheelState.lastX = e.clientX;
+        wheelState.lastY = e.clientY;
+        if (wheelState.lastDirection !== delta) {
+            wheelState.accumulatedDelta = 0;
+            wheelState.accumulatedDistance = 0;
+            wheelState.scrollCount = 0;
+            wheelState.lastDirection = delta;
+        }
+        wheelState.accumulatedDelta += Math.abs(e.deltaY);
+        wheelState.scrollCount++;
+        var currentDistance = getWheelDistance();
+        wheelState.accumulatedDistance += currentDistance;
+        if (wheelState.timer) clearTimeout(wheelState.timer);
+        wheelState.timer = setTimeout(function() {
+            if (wheelState.accumulatedDelta > 0 && wheelState.lastDirection !== 0) {
+                sendWheelScroll(wheelState.lastDirection, wheelState.accumulatedDistance, wheelState.lastX, wheelState.lastY);
+                wheelState.accumulatedDelta = 0;
+                wheelState.accumulatedDistance = 0;
+                wheelState.scrollCount = 0;
+            }
+        }, 100);
+    };
+    wheelState.wheelListener = wheelState.wheelHandler;
+    document.addEventListener('wheel', wheelState.wheelListener, { passive: false });
+    console.log('Wheel handler initialized');
+ }
+
+ initWheelHandler();
+
+// 投屏窗口直接调用 bindings 置顶自己
+function bindTopmostButton() {
+    var topmostBtn = document.getElementById('ctr_topmost');
+    if (!topmostBtn) {
+        setTimeout(bindTopmostButton, 100);
+        return;
+    }
+    
+    // 检查 bindings 是否已加载
+    if (typeof ToggleProjectionWindowTop !== 'function') {
+        console.log('等待 bindings 加载...');
+        setTimeout(bindTopmostButton, 100);
+        return;
+    }
+    
+    topmostBtn.addEventListener('click', function() {
+        var btn = this;
+        var isTopmost = btn.getAttribute('state') === '1';
+        
+        // 从 URL 获取正确的窗口 ID (DeviceIP_ContainerName)
+        var urlParams = new URLSearchParams(window.location.search);
+        var deviceIP = urlParams.get('shost') || '';
+        var containerName = urlParams.get('container_name') || urlParams.get('rtc_i') || 'unknown';
+        var windowID = deviceIP ? (deviceIP + '_' + containerName) : containerName;
+        
+        console.log('置顶按钮点击, deviceIP:', deviceIP, 'containerName:', containerName, 'windowID:', windowID);
+        
+        // 直接调用主窗口函数
+        console.log('调用 ToggleProjectionWindowTop');
+        ToggleProjectionWindowTop(windowID).then(result => {
+            console.log('置顶结果:', result);
+            if (result && result.success) {
+                var newState = isTopmost ? '0' : '1';
+                btn.setAttribute('state', newState);
+                btn.style.backgroundColor = isTopmost ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 215, 0, 0.5)';
+                var svg = document.getElementById('s_topmost');
+                if (svg) {
+                    svg.style.fill = isTopmost ? 'currentColor' : 'rgba(255, 215, 0, 0.9)';
+                }
+            }
+        }).catch(function(err) {
+            console.error('ToggleProjectionWindowTop 失败:', err);
+            fallbackSetAlwaysOnTop(!isTopmost, btn, isTopmost);
+        });
+    });
+    console.log('置顶按钮事件绑定完成');
+}
+
+// 降级方案：使用 wails window API
+function fallbackSetAlwaysOnTop(enable, btn, wasTopmost) {
+    try {
+        if (window.wails && window.wails.window) {
+            window.wails.window.setAlwaysOnTop(enable);
+            var newState = wasTopmost ? '0' : '1';
+            btn.setAttribute('state', newState);
+            btn.style.backgroundColor = wasTopmost ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 215, 0, 0.5)';
+            var svg = document.getElementById('s_topmost');
+            if (svg) {
+                svg.style.fill = wasTopmost ? 'currentColor' : 'rgba(255, 215, 0, 0.9)';
+            }
+        }
+    } catch (e) {
+        console.error('降级置顶失败:', e);
+    }
+}
+
+// 排列按钮点击事件 - 智能排列所有投屏窗口
+function bindArrangeButton() {
+    var arrangeBtn = document.getElementById('ctr_arrange');
+    if (!arrangeBtn) {
+        setTimeout(bindArrangeButton, 100);
+        return;
+    }
+    
+    arrangeBtn.addEventListener('click', function() {
+        var btn = this;
+        console.log('排列按钮点击');
+        
+        // 直接调用主窗口函数
+        ArrangeProjectionWindows({
+            screenWidth: window.screen.availWidth,
+            screenHeight: window.screen.availHeight
+        }).then(function(result) {
+            console.log('排列结果:', result);
+            if (result && result.success) {
+                btn.style.backgroundColor = 'rgba(0, 255, 127, 0.5)';
+                setTimeout(function() {
+                    btn.style.backgroundColor = '';
+                }, 300);
+            }
+        }).catch(function(err) {
+            console.error('排列失败:', err);
+        });
+    });
+    console.log('排列按钮事件绑定完成');
+}
+
+// 延迟绑定确保 DOM 和 bindings 都已加载
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+        bindTopmostButton();
+        bindArrangeButton();
+    });
+} else {
+    setTimeout(function() {
+        bindTopmostButton();
+        bindArrangeButton();
+    }, 200);
+}
+
+// 页面清理处理器
+var cleanupHandlers = {
+    _registered: false,
+    
+    register: function() {
+        if (this._registered) return;
+        window.addEventListener('unload', this.unloadHandler);
+        window.addEventListener('beforeunload', this.beforeunloadHandler);
+        this._registered = true;
+    },
+    
+    unregister: function() {
+        if (!this._registered) return;
+        window.removeEventListener('unload', this.unloadHandler);
+        window.removeEventListener('beforeunload', this.beforeunloadHandler);
+        this._registered = false;
+    },
+    
+    unloadHandler: function() {
+        console.log('[BatchControl] 页面卸载，清理资源');
+        cleanupHandlers.cleanupAll();
+    },
+    
+    beforeunloadHandler: function() {
+        console.log('[BatchControl] 页面即将关闭，清理资源');
+        cleanupHandlers.cleanupAll();
+    },
+    
+    cleanupAll: function() {
+        if (typeof window.h5_lgair === 'object' && window.h5_lgair && typeof window.h5_lgair.destroy === 'function') {
+            window.h5_lgair.destroy();
+        }
+        if (typeof window.destroyWailsIPC === 'function') {
+            window.destroyWailsIPC();
+        }
+        if (typeof LGAIR_UI.stopAllTimers === 'function') {
+            LGAIR_UI.stopAllTimers();
+        } else if (typeof LGAIR_UI.stopProgress === 'function') {
+            LGAIR_UI.stopProgress();
+        }
+        if (batchControlCheckTimer) {
+            clearInterval(batchControlCheckTimer);
+            batchControlCheckTimer = null;
+        }
+        BatchControl.close();
+        VideoStreamProxy.close();
+        if (wheelState.timer) {
+            clearTimeout(wheelState.timer);
+            wheelState.timer = null;
+        }
+        if (wheelState.wheelListener) {
+            document.removeEventListener('wheel', wheelState.wheelListener);
+            wheelState.wheelListener = null;
+        }
+        if (window._h5LgairMessageHandler) {
+            window.removeEventListener('message', window._h5LgairMessageHandler);
+            window._h5LgairMessageHandler = null;
+        }
+        cleanupHandlers.unregister();
+    }
+};
+
+window.globalCleanup = function() {
+    cleanupHandlers.unloadHandler();
+};
+
+cleanupHandlers.register();
+
+</script>
+</body>
+</html>

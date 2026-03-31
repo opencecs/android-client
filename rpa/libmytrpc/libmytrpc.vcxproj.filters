@@ -1,0 +1,126 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="源文件">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="头文件">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="资源文件">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="jsoncpp">
+      <UniqueIdentifier>{7c379423-ec29-49b4-a89d-c04e147195d9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="jsoncpp\json">
+      <UniqueIdentifier>{c3039182-fca2-4854-9704-1be9e7b19dff}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ReadMe.txt" />
+    <None Include="jsoncpp\json_internalarray.inl">
+      <Filter>jsoncpp</Filter>
+    </None>
+    <None Include="jsoncpp\json_internalmap.inl">
+      <Filter>jsoncpp</Filter>
+    </None>
+    <None Include="jsoncpp\json_valueiterator.inl">
+      <Filter>jsoncpp</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="stdafx.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="targetver.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="libmytrpc.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="RCore.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="PkgData.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="NodeApi.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json_batchallocator.h">
+      <Filter>jsoncpp</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\autolink.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\config.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\features.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\forwards.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\json.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\reader.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\value.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="jsoncpp\json\writer.h">
+      <Filter>jsoncpp\json</Filter>
+    </ClInclude>
+    <ClInclude Include="rapidxml.hpp">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="rapidxml_iterators.hpp">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="rapidxml_print.hpp">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="rapidxml_utils.hpp">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Logger.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="stdafx.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="libmytrpc.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="dllmain.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="RCore.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="PkgData.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="NodeApi.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="jsoncpp\json_reader.cpp">
+      <Filter>jsoncpp</Filter>
+    </ClCompile>
+    <ClCompile Include="jsoncpp\json_value.cpp">
+      <Filter>jsoncpp</Filter>
+    </ClCompile>
+    <ClCompile Include="jsoncpp\json_writer.cpp">
+      <Filter>jsoncpp</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>

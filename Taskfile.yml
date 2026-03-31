@@ -1,0 +1,56 @@
+version: '3'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+  ios: ./build/ios/Taskfile.yml
+  android: ./build/android/Taskfile.yml
+
+vars:
+  APP_NAME: "MYTV3"
+  BIN_DIR: "bin"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+tasks:
+  build:
+    summary: Builds the application
+    cmds:
+      - task: "{{OS}}:build"
+
+  package:
+    summary: Packages a production build of the application
+    cmds:
+      - task: "{{OS}}:package"
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: "{{OS}}:run"
+
+  build:rpa:
+    summary: 带 RPA SDK 编译（CGO + cgorpa tag，静态链接 libmytrpc.a）
+    deps:
+      - task: windows:build:rpa:lib
+    cmds:
+      - go build -tags cgorpa -buildvcs=false -o bin/MYTV3.exe .
+    env:
+      CGO_ENABLED: "1"
+      GOOS: windows
+      GOARCH: amd64
+      CC: '{{.LOCALAPPDATA}}\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin\gcc.exe'
+      CXX: '{{.LOCALAPPDATA}}\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin\g++.exe'
+
+  dev:
+    summary: Runs the application in development mode
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+    env:
+      CGO_ENABLED: "1"
+      PATH: '{{.LOCALAPPDATA}}\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe\mingw64\bin;{{.PATH}}'
+
+  setup:docker:
+    summary: Builds Docker image for cross-compilation (~800MB download)
+    cmds:
+      - task: common:setup:docker

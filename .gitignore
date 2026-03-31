@@ -1,0 +1,61 @@
+build/bin
+node_modules
+frontend/dist
+screen_instances.json
+bin
+.task
+frontend/wailsjs
+frontend/bindings
+camdemo/windows_pusher/build
+camdemo/windows_pusher/build_hybrid
+camdemo/windows_pusher/build_native
+camdemo/windows_pusher/ffmpeg.bak
+camdemo/windows_pusher/ffmpeg7.0-x64-static-release.bak
+logs/
+
+# 日志文件
+logs/
+
+# RPA 编译产物（.o 目标文件、.a 静态库）
+rpa/**/*.o
+rpa/**/*.a
+
+# Wails 构建时自动生成的 Windows 资源文件
+*.syso
+
+# RPA-AI 大文件（模型权重/二进制包，不上传 git）
+RPA-AI/Qwen2.5-Coder-7B-Instruct/
+RPA-AI/Qwen3-Embedding-0.6B/
+RPA-AI/RK1820_RK1828_AI_SDK_V1.0.0.tgz
+
+# Player 构建产物和运行时缓存
+player/player.exe
+player/player.exe.WebView2/
+player/*.dll
+player_debug.log
+
+# Player Native CMake 构建中间产物
+player/native/build-win64-static/
+
+# RPA 临时文件
+rpa/libmytrpc/st*
+*.md
+player
+*.exe
+camdemo
+*.dll
+oldversion_api_refrence
+qwen25_fc.jinja
+third_party
+native
+lgplayer
+go
+cmd
+assets
+_oldversion_api_refrence
+.vscode
+.DS_Store
+_temp_hash
+.codebuddy
+build_err.txt
+err.txt

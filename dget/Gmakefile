@@ -1,0 +1,48 @@
+env.linux {
+    GOOS: linux
+    GOARCH: amd64
+}
+
+client {
+    go build .
+}
+
+linux(.linux) {
+    go build -o ./bin/${GOOS}_$GOARCH/  ./cmd/dget 
+}
+
+env.linux_arm {
+    GOOS: linux
+    GOARCH: arm
+}
+
+linux_arm (.linux_arm){
+    go build -o ./bin/${GOOS}_$GOARCH/  ./cmd/dget 
+}
+
+env.darwin {
+    GOOS: darwin
+    GOARCH: amd64
+}
+
+darwin (.darwin){
+    go build -o ./bin/${GOOS}_$GOARCH/  ./cmd/dget 
+}
+
+env.darwin_arm {
+    GOOS: darwin
+    GOARCH: arm64
+}
+
+darwin_arm (.darwin_arm){
+    go build -o ./bin/${GOOS}_$GOARCH/  ./cmd/dget 
+}
+
+env.windows {
+    GOOS: windows
+    GOARCH: amd64
+}
+
+windows (.windows){
+    go build -o ./bin/${GOOS}_$GOARCH/  ./cmd/dget 
+}
