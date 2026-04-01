@@ -392,8 +392,6 @@ npm install
 
 ## 📧 联系方式
 
-- **作者**：Willzen
-- **邮箱**：willzen@yeah.net
 - **官网**：[https://www.moyunteng.com](https://www.moyunteng.com)
 
 ---
