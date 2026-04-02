@@ -303,7 +303,9 @@ const onLoginSuccess = (userData) => {
 }
 
 // 清除所有由 OpenCecs 注入到主机页面的设备
-const removeAllOpenCecsDevices = () => {
+// clearCache=true 时同时清除端口映射缓存（退出登录时使用）
+// clearCache=false 时保留缓存（刷新时使用，下次可从缓存恢复）
+const removeAllOpenCecsDevices = (clearCache = true) => {
   // 收集所有已知的 OpenCecs 设备 IP（从内存 + localStorage 中恢复）
   const allKnownIps = new Set(addedDeviceIps)
   try {
@@ -346,8 +348,16 @@ const removeAllOpenCecsDevices = () => {
   addedDeviceIps.clear()
   deviceIpToInstanceMap.clear()
   window.openCecsPortMap?.clear()
-  localStorage.removeItem(PORT_MAP_STORAGE_KEY)
   localStorage.removeItem(ADDED_DEVICES_KEY)
+  
+  if (clearCache) {
+    // 退出登录时清除端口映射缓存
+    localStorage.removeItem(PORT_MAP_STORAGE_KEY)
+    localStorage.removeItem(INSTANCE_DEVICE_MAP_KEY)
+    console.log('[OpenCecs] 已清除端口映射缓存')
+  } else {
+    console.log('[OpenCecs] 保留端口映射缓存（刷新模式）')
+  }
 }
 
 const handleLogout = () => {
@@ -401,6 +411,8 @@ const deviceIpToInstanceMap = new Map()
 // 持久化到 localStorage，页面刷新后仍可用
 const PORT_MAP_STORAGE_KEY = 'opencecs_port_map'
 const ADDED_DEVICES_KEY = 'opencecs_added_devices'
+// 实例到设备的映射缓存：instanceId → { publicIp, deviceIp }
+const INSTANCE_DEVICE_MAP_KEY = 'opencecs_instance_device_map'
 // 版本计数器：每次 fetchInstances 递增，setupAllPortMappings 检查是否过期
 let setupVersion = 0
 
@@ -454,6 +466,67 @@ function savePortMapToStorage() {
   }
 }
 
+// 保存实例到设备的映射缓存到 localStorage
+function saveInstanceDeviceMap(instanceId, publicIp, deviceIp) {
+  try {
+    const raw = localStorage.getItem(INSTANCE_DEVICE_MAP_KEY)
+    const map = raw ? JSON.parse(raw) : {}
+    map[instanceId] = { publicIp, deviceIp }
+    localStorage.setItem(INSTANCE_DEVICE_MAP_KEY, JSON.stringify(map))
+    console.log(`[端口映射缓存] 已保存实例设备映射: ${instanceId} → ${deviceIp}`)
+  } catch (e) {
+    console.warn('[端口映射缓存] 保存实例设备映射失败', e)
+  }
+}
+
+// 从 localStorage 加载实例到设备的映射缓存
+function loadInstanceDeviceMap() {
+  try {
+    const raw = localStorage.getItem(INSTANCE_DEVICE_MAP_KEY)
+    if (raw) {
+      const map = JSON.parse(raw)
+      console.log('[端口映射缓存] 从 localStorage 恢复实例设备映射:', map)
+      return map
+    }
+  } catch (e) {
+    console.warn('[端口映射缓存] 恢复实例设备映射失败', e)
+  }
+  return {}
+}
+
+// 检查某个实例是否有缓存的端口映射
+function hasCachedPortMapping(instanceId) {
+  const instanceDeviceMap = loadInstanceDeviceMap()
+  const cachedInfo = instanceDeviceMap[instanceId]
+  if (!cachedInfo || !cachedInfo.deviceIp) return false
+  // 同时检查端口映射表中是否有对应的 deviceIp 数据
+  const portMapRaw = localStorage.getItem(PORT_MAP_STORAGE_KEY)
+  if (!portMapRaw) return false
+  try {
+    const portMapObj = JSON.parse(portMapRaw)
+    return !!portMapObj[cachedInfo.deviceIp] && Object.keys(portMapObj[cachedInfo.deviceIp]).length > 0
+  } catch (e) {
+    return false
+  }
+}
+
+// 获取缓存的端口映射信息
+function getCachedPortMapping(instanceId) {
+  const instanceDeviceMap = loadInstanceDeviceMap()
+  const cachedInfo = instanceDeviceMap[instanceId]
+  if (!cachedInfo || !cachedInfo.deviceIp) return null
+  const portMapRaw = localStorage.getItem(PORT_MAP_STORAGE_KEY)
+  if (!portMapRaw) return null
+  try {
+    const portMapObj = JSON.parse(portMapRaw)
+    const ports = portMapObj[cachedInfo.deviceIp]
+    if (!ports || Object.keys(ports).length === 0) return null
+    return { ...cachedInfo, ports }
+  } catch (e) {
+    return null
+  }
+}
+
 if (!window.openCecsPortMap || window.openCecsPortMap.size === 0) {
   window.openCecsPortMap = loadPortMapFromStorage()
   // 启动时也推送到 Go 后端
@@ -479,8 +552,8 @@ const fetchInstances = async () => {
   // 递增版本号，使上一次仍在运行的 setupAllPortMappings 自动终止
   const currentVersion = ++setupVersion
 
-  // 刷新前先移除上一次由 OpenCecs 添加的所有设备
-  removeAllOpenCecsDevices()
+  // 刷新前先移除上一次由 OpenCecs 添加的所有设备（保留端口映射缓存）
+  removeAllOpenCecsDevices(false)
 
   try {
     const res = await fetch(`${BASE_URL}/cecs/instances?page=1&page_size=99999`, {
@@ -515,7 +588,7 @@ const fetchInstances = async () => {
       instanceList.value = []
       instanceTotal.value = 0
       instanceStats.value = { running: 0, stopped: 0, expired: 0 }
-      removeAllOpenCecsDevices()
+      removeAllOpenCecsDevices(false)
     }
   } catch (e) {
     console.error('获取实例列表失败', e)
@@ -523,7 +596,7 @@ const fetchInstances = async () => {
     instanceList.value = []
     instanceTotal.value = 0
     instanceStats.value = { running: 0, stopped: 0, expired: 0 }
-    removeAllOpenCecsDevices()
+    removeAllOpenCecsDevices(false)
   } finally {
     listLoading.value = false
   }
@@ -581,9 +654,12 @@ const operateInstance = async (item, action) => {
 }
 
 // 暴露 init 方法，供父组件在切换到该标签页时调用
-// 切换标签页时不自动拉取数据，减少负担；用户点击"刷新"按钮才发起请求
+// 切换标签页时自动刷新页面数据
 const init = () => {
-  console.log('[OpenCecs] init 被调用（仅切换标签页，不自动刷新）')
+  console.log('[OpenCecs] init 被调用，切换标签页触发刷新')
+  if (userInfo.value) {
+    fetchInstances()
+  }
 }
 
 // 根据设备公网 IP（如 1.2.3.4:5001）查找对应的 OpenCecs 实例
@@ -605,12 +681,15 @@ const getInstanceByDeviceIp = (deviceIp) => {
 
 
 /**
- * 统一处理所有实例的端口映射（优化版）
+ * 统一处理所有实例的端口映射（优化版 — 支持缓存）
  * 
- * 流程：删除旧映射 → 创建 8000 映射 → 查询容器 → 批量创建容器映射
+ * 流程：
+ *  1. 先检查 localStorage 缓存，有缓存的实例直接恢复（跳过网络请求）
+ *  2. 无缓存的实例走完整流程：删除旧映射 → 创建 8000 映射 → 查询容器 → 批量创建容器映射
+ * 
  * 优化：
- *  1. 合并获取+删除为单步并行操作
- *  2. 缩短等待时间（2s → 1s + 重试补偿）
+ *  1. 缓存命中时跳过所有网络请求，大幅加速刷新
+ *  2. 合并获取+删除为单步并行操作
  *  3. 并行获取容器列表和设备信息
  *  4. 尽早注入设备到主机列表
  *
@@ -624,27 +703,76 @@ const setupAllPortMappings = async (instances, version) => {
 
   const isStale = () => setupVersion !== version
 
-  // ===== 阶段1：并行 获取概览 + 获取旧映射并删除 =====
-  // 将阶段1和阶段2合并：每个实例同时获取概览和映射列表，拿到映射列表后立即删除
-  const instanceInfos = await Promise.all(instances.map(async (instance) => {
+  // ===== 阶段0 & 1：验证缓存与获取概览 =====
+  const cachedInstances = []
+  const uncachedInstances = []
+  const instanceInfos = []
+
+  await Promise.all(instances.map(async (instance) => {
     const instanceId = instance.instance_id
+    const cached = getCachedPortMapping(instanceId)
+
     let overview = null
+    let listData = null
+    let ovData = null
+
+    // 无论有无缓存，都拉取线上真实的端口映射列表和概览来验证/获取
     try {
       const [ovRes, listRes] = await Promise.all([
-        fetch(`${BASE_URL}/cecs/instances/${instanceId}/port-mappings/overview`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch(`${BASE_URL}/cecs/instances/${instanceId}/port-mappings?page=1&page_size=99999`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+        fetch(`${BASE_URL}/cecs/instances/${instanceId}/port-mappings/overview`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${BASE_URL}/cecs/instances/${instanceId}/port-mappings?page=1&page_size=99999`, { headers: { 'Authorization': `Bearer ${token}` } })
       ])
-      const [ovData, listData] = await Promise.all([ovRes.json(), listRes.json()])
-      if (ovData.code === 200) overview = ovData.data
-      else console.warn(`[端口映射] 概览API非200 (${instanceId}): code=${ovData.code}, msg=${ovData.message}`)
-      const list = (listData.code === 200 ? listData.data?.list : null) || []
+      ovData = await ovRes.json()
+      listData = await listRes.json()
+    } catch (e) {
+      console.error(`[端口映射] 请求线上概览或规则失败 (${instanceId})`, e)
+    }
+
+    let isCacheValid = false
+    // 校验缓存数据的有效性（和线上返回的映射列表是否完全一致）
+    if (cached && cached.ports && ovData?.code === 200 && listData?.code === 200) {
+      overview = ovData.data
+      const list = listData.data?.list || []
+      const onlinePorts = {}
+      for (const p of list) {
+        if (p.private_port && p.public_port) {
+          onlinePorts[p.private_port] = p.public_port
+        }
+      }
+      
+      const cachedKeys = Object.keys(cached.ports)
+      const onlineKeys = Object.keys(onlinePorts)
+      if (cachedKeys.length > 0 && cachedKeys.length === onlineKeys.length) {
+        // 判断私有端口对公有端口是否一一对应
+        const allMatch = cachedKeys.every(k => Number(cached.ports[k]) === Number(onlinePorts[k]))
+        const publicIp = overview?.nat_public_ip
+        const cachedPublicIp = cached.deviceIp.split(':')[0]
+        // 还要保证公有IP一致
+        if (allMatch && publicIp === cachedPublicIp) {
+          isCacheValid = true
+          console.log(`[端口映射] 缓存校验通过 (${instanceId}): IP=${publicIp}, 端口数=${cachedKeys.length}`)
+        } else {
+          console.warn(`[端口映射] 缓存校验未通过 (${instanceId}): allMatch=${allMatch}, publicIp=${publicIp}, cached=${cachedPublicIp}`)
+        }
+      } else {
+        console.warn(`[端口映射] 缓存校验未通过 (${instanceId}): 长度不一致 cached=${cachedKeys.length}, online=${onlineKeys.length}`)
+      }
+    }
+
+    if (isCacheValid) {
+      cachedInstances.push({ instance, cached })
+    } else {
+      uncachedInstances.push(instance)
+      if (ovData?.code === 200) {
+        overview = ovData.data
+      } else if (ovData) {
+        console.warn(`[端口映射] 概览API非200 (${instanceId}): code=${ovData.code}, msg=${ovData.message}`)
+      }
+
+      // 如果属于缓存无效或无缓存的，走原本彻底删除重建的逻辑：先删除旧有所有列表
+      const list = (listData?.code === 200 ? listData.data?.list : null) || []
       const mappingIds = list.map(p => p.mapping_id).filter(Boolean)
 
-      // 获取到列表后立即删除旧映射（不用等其他实例）
       if (mappingIds.length > 0) {
         try {
           await fetch(`${BASE_URL}/cecs/instances/${instanceId}/port-mappings/batch`, {
@@ -657,11 +785,86 @@ const setupAllPortMappings = async (instances, version) => {
           console.warn(`[端口映射] 删除旧映射失败 (${instanceId})`, e)
         }
       }
-    } catch (e) {
-      console.error(`[端口映射] 获取信息失败 (${instanceId})`, e)
+      instanceInfos.push({ instance, instanceId, overview })
     }
-    return { instance, instanceId, overview }
   }))
+
+  console.log(`[端口映射] 缓存命中且校验通过: ${cachedInstances.length} 个, 需要彻底重建: ${uncachedInstances.length} 个`)
+
+  // ===== 处理缓存命中的实例：直接恢复，不发网络请求 =====
+  for (const { instance, cached } of cachedInstances) {
+    if (isStale()) return
+    const { deviceIp, ports } = cached
+    const instanceId = instance.instance_id
+    console.log(`[端口映射缓存] 恢复实例 ${instanceId}: deviceIp=${deviceIp}`)
+
+    // 恢复端口映射到全局 Map
+    const portMap = new Map()
+    for (const [priv, pub] of Object.entries(ports)) {
+      portMap.set(Number(priv), Number(pub))
+    }
+    window.openCecsPortMap.set(deviceIp, portMap)
+
+    // 注入设备到主机列表
+    addedDeviceIps.add(deviceIp)
+    deviceIpToInstanceMap.set(deviceIp, instance)
+    const deviceObj = {
+      ip: deviceIp,
+      type: 'android',
+      id: instance.instance_id || deviceIp,
+      name: 'opencecs',
+      version: 'v3',
+      isOnline: true,
+      lastSeen: new Date(),
+      group: '默认分组',
+      source: 'opencecs'
+    }
+    if (typeof window.addDiscoveredDevice === 'function') {
+      window.addDiscoveredDevice(deviceObj)
+      saveAddedDeviceIps()
+      console.log(`[端口映射缓存] ✅ 设备已恢复注入: ${deviceIp}`)
+    }
+
+    // 异步获取设备真实 ID 和名称（不阻塞后续流程）
+    ;(async () => {
+      try {
+        if (typeof window.goHttpRequest === 'function') {
+          const result = await window.goHttpRequest({ Method: 'GET', URL: `http://${deviceIp}/info/device`, Body: '', Headers: {} })
+          if (result && result.success && result.body) {
+            const infoData = result.body
+            const fetchedId = infoData?.deviceId || infoData?.data?.deviceId
+            if (fetchedId) {
+              const firstChar = fetchedId[0]?.toLowerCase()
+              const nameMap = { r: 'r1_v3', c: 'c1_v3', q: 'q1_v3', p: 'p1_v3' }
+              deviceObj.id = fetchedId
+              deviceObj.name = nameMap[firstChar] || 'opencecs'
+              if (typeof window.addDiscoveredDevice === 'function') {
+                window.addDiscoveredDevice(deviceObj)
+                console.log(`[端口映射缓存] 📝 设备信息已更新: ${deviceIp} → id=${fetchedId}, name=${deviceObj.name}`)
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[端口映射缓存] 获取设备信息失败 (${deviceIp}): ${e.message}`)
+      }
+    })()
+  }
+
+  // 保存恢复后的端口映射
+  if (cachedInstances.length > 0) {
+    savePortMapToStorage()
+  }
+
+  // 如果所有实例都命中缓存，直接结束
+  if (uncachedInstances.length === 0) {
+    console.log(`[端口映射] 所有实例均命中缓存，setupAllPortMappings v${version} 完成`)
+    return
+  }
+
+  if (isStale()) { console.log(`[端口映射] v${version} 已过期，终止`); return }
+
+  // ===== 以下仅处理未命中缓存/缓存失效的实例（已执行完删除旧映射逻辑） =====
 
   if (isStale()) { console.log(`[端口映射] v${version} 已过期，终止`); return }
 
@@ -701,7 +904,7 @@ const setupAllPortMappings = async (instances, version) => {
   // 等待 1 秒让新 8000 端口映射生效（从 2s 缩短到 1s）
   await new Promise(r => setTimeout(r, 1000))
 
-  await Promise.all(validDeviceInfos.map(async ({ instance, instanceId, deviceIp }) => {
+  await Promise.all(validDeviceInfos.map(async ({ instance, instanceId, publicIp, deviceIp }) => {
     // 每个实例独立 try/catch，避免一个失败导致其他实例也无法处理
     try {
       if (isStale()) return
@@ -840,7 +1043,7 @@ const setupAllPortMappings = async (instances, version) => {
 
       if (isStale()) return
 
-      // 3e. 查询最终完整映射，构建 portMap
+      // 3e. 查询最终完整映射，构建 portMap，并缓存到 localStorage
       try {
         const listRes = await fetch(`${BASE_URL}/cecs/instances/${instanceId}/port-mappings?page=1&page_size=200`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -856,7 +1059,9 @@ const setupAllPortMappings = async (instances, version) => {
           }
           window.openCecsPortMap.set(deviceIp, portMap)
           savePortMapToStorage()
-          console.log(`[端口映射] 端口映射表已构建 (${deviceIp}):`, Object.fromEntries(portMap))
+          // 保存实例到设备映射缓存
+          saveInstanceDeviceMap(instanceId, publicIp, deviceIp)
+          console.log(`[端口映射] 端口映射表已构建并缓存 (${deviceIp}):`, Object.fromEntries(portMap))
         }
       } catch (e) {
         console.warn(`[端口映射] 查询端口映射列表失败 (${instanceId})`, e)
@@ -1032,7 +1237,10 @@ const ensureContainerPortMappings = async (instanceId, deviceIp) => {
       // 同时以 deviceIp 和 IP 前缀的形式存入，确保 extractPort 模糊匹配能命中
       window.openCecsPortMap?.set(deviceIp, portMap)
       savePortMapToStorage()
-      console.log(`[端口映射] 容器创建后端口映射表已更新 (${deviceIp}):`, Object.fromEntries(portMap))
+      // 同步保存实例到设备映射缓存，下次刷新时可直接恢复
+      const publicIp = deviceIp.includes(':') ? deviceIp.split(':')[0] : deviceIp
+      saveInstanceDeviceMap(instanceId, publicIp, deviceIp)
+      console.log(`[端口映射] 容器创建后端口映射表已更新并缓存 (${deviceIp}):`, Object.fromEntries(portMap))
     }
   } catch (e) {
     console.error(`[端口映射] ensureContainerPortMappings 失败 (${instanceId})`, e)

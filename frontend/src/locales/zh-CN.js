@@ -36,7 +36,11 @@ export default {
     batchOperation: '批量操作',
     more: '更多',
     collapse: '收起',
-    expand: '展开'
+    expand: '展开',
+    sortBy: '排序方式',
+    createTimeSort: '创建时间',
+    selectedItems: '已选择 {count} 项',
+    batchDelete: '批量删除'
   },
   
   app: {
@@ -138,7 +142,11 @@ export default {
     selectedCount: '已选择 {count} 个',
     batchDelete: '批量删除',
     batchStart: '批量启动',
-    batchStop: '批量停止'
+    batchStop: '批量停止',
+    backupName: '备份名称',
+    remark: '备注',
+    shutdown: '已关机',
+    restarting: '重启中'
   },
   
   model: {

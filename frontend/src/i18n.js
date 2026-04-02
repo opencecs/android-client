@@ -27,7 +27,11 @@ const zhCN = {
     description: '描述',
     settings: '设置',
     upload: '上传',
-    download: '下载'
+    download: '下载',
+    sortBy: '排序方式',
+    createTimeSort: '创建时间',
+    selectedItems: '已选择 {count} 项',
+    batchDelete: '批量删除'
   },
   app: {
     title: '魔云腾-V3-客户端',
@@ -85,7 +89,11 @@ const zhCN = {
     fileUpload: '上传文件',
     oneKeyNewDevice: '一键新机',
     switchModel: '切换机型',
-    resetContainer: '重置容器'
+    resetContainer: '重置容器',
+    backupName: '备份名称',
+    remark: '备注',
+    created: '已创建',
+    restarting: '重启中'
   },
   update: {
     checkUpdate: '检查更新',
@@ -131,7 +139,11 @@ const enUS = {
     description: 'Description',
     settings: 'Settings',
     upload: 'Upload',
-    download: 'Download'
+    download: 'Download',
+    sortBy: 'Sort By',
+    createTimeSort: 'Create Time',
+    selectedItems: '{count} selected',
+    batchDelete: 'Batch Delete'
   },
   app: {
     title: 'MoYunTeng V3 Client',
@@ -189,7 +201,11 @@ const enUS = {
     fileUpload: 'Upload File',
     oneKeyNewDevice: 'One-Click New Device',
     switchModel: 'Switch Model',
-    resetContainer: 'Reset Container'
+    resetContainer: 'Reset Container',
+    backupName: 'Backup Name',
+    remark: 'Remark',
+    created: 'Created',
+    restarting: 'Restarting'
   },
   update: {
     checkUpdate: 'Check for Updates',

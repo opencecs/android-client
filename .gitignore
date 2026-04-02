@@ -60,3 +60,5 @@ _temp_hash
 .codebuddy
 build_err.txt
 err.txt
+.git.myt
+.git.bak

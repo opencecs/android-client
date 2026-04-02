@@ -349,10 +349,9 @@ const handleManualAdd = async () => {
     manualAddResult.value = result
     
     if (result.success && result.devices && result.devices.length > 0) {
-      // 添加成功的设备
-      for (const device of result.devices) {
-        emit('device-added', device)
-      }
+      // 批量发送添加成功的所有设备，避免循环单次发送造成心跳服务拥堵
+      emit('devices-added', result.devices)
+      
       ElMessage.success(`已添加 ${result.devices.length} 个设备`)
       handleClose()
     }

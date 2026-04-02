@@ -9,6 +9,10 @@ import axios from 'axios'
 const messages = {
   'zh-CN': {
     common: {
+      sortBy: '排序方式',
+      createTimeSort: '创建时间',
+      selectedItems: '已选择 {count} 项',
+      backupName: '备份名称',
       cloudMachine: 'Machine',
       statusInfo: '状态信息',
       statusLabel: '状态',
@@ -1546,6 +1550,14 @@ const messages = {
       description: 'ARM边缘计算设备管理客户端'
     },
     cloudMachine: {
+      currentName: '当前名称',
+      newName: '新名称',
+      enterNewName: '请输入新名称',
+      running: '运行中',
+      backupName: '备份名称',
+      remark: '备注',
+      created: '已创建',
+      restarting: '重启中',
       renameCloudMachine: '修改云机名称',
       switchBackup: '切换备份',
       batchAddToGroup: '批量添加分组',
@@ -1570,10 +1582,14 @@ const messages = {
   },
   'en-US': {
     common: {
+      sortBy: 'Sort By',
+      createTimeSort: 'Create Time',
+      selectedItems: '{count} selected',
+      backupName: 'Backup Name',
       cloudMachine: 'Machine',
-      statusInfo: '状态信息',
-      statusLabel: '状态',
-      projection: '投屏',
+      statusInfo: 'Status Info',
+      statusLabel: 'Status',
+      projection: 'Projection',
       confirm: 'Confirm',
       cancel: 'Cancel',
       save: 'Save',
@@ -3093,6 +3109,14 @@ const messages = {
       description: 'ARM Edge Computing Device Management Client'
     },
     cloudMachine: {
+      currentName: 'Current Name',
+      newName: 'New Name',
+      enterNewName: 'Please enter new name',
+      running: 'Running',
+      backupName: 'Backup Name',
+      remark: 'Remark',
+      created: 'Created',
+      restarting: 'Restarting',
       renameCloudMachine: 'Rename Cloud Machine',
       switchBackup: 'Switch Backup',
       batchAddToGroup: 'Batch Add to Group',

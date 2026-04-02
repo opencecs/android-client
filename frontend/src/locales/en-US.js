@@ -36,7 +36,11 @@ export default {
     batchOperation: 'Batch Operation',
     more: 'More',
     collapse: 'Collapse',
-    expand: 'Expand'
+    expand: 'Expand',
+    sortBy: 'Sort By',
+    createTimeSort: 'Create Time',
+    selectedItems: '{count} selected',
+    batchDelete: 'Batch Delete'
   },
   
   app: {
@@ -138,7 +142,11 @@ export default {
     selectedCount: '{count} selected',
     batchDelete: 'Batch Delete',
     batchStart: 'Batch Start',
-    batchStop: 'Batch Stop'
+    batchStop: 'Batch Stop',
+    backupName: 'Backup Name',
+    remark: 'Remark',
+    shutdown: 'Shutdown',
+    restarting: 'Restarting'
   },
   
   model: {

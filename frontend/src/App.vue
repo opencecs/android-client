@@ -1684,6 +1684,7 @@ const createForm = ref({
   networkCardType: 'private', // private-私有网卡, public-公有网卡
   mytBridgeName: '', // myt_bridge网卡名
   macVlanIp: '', // macVlan IP
+  adbPort: 5555, // ADB端口，默认555，设置0不开启ADB
   selectedSlots: [] // 批量创建选中的坑位
 })
 
@@ -2761,6 +2762,7 @@ const showCreateDialog = async (device, mode, slot = 0, localImage = null) => {
       enableMagisk: false,
       enableGMS: false,
       enforce: true, // 安全模式，默认开启
+      adbPort: 5555, // ADB端口，默认555，设置0不开启ADB
       // 网络管理分组
       vpcGroupId: '', // 选择的分组ID
       vpcNodeId: '', // 选择的节点ID
@@ -2826,6 +2828,7 @@ const showCreateDialog = async (device, mode, slot = 0, localImage = null) => {
       enableMagisk: false,
       enableGMS: false,
       enforce: true, // 安全模式，默认开启
+      adbPort: 5555, // ADB端口，默认5555，设置0不开启ADB
       // 网络管理分组
       vpcGroupId: '', // 选择的分组ID
       vpcNodeId: '', // 选择的节点ID
@@ -8752,6 +8755,7 @@ const createV3CloudMachine = async (device, slot, modelName, cancelCheck = null,
       Mgenable: form.enableMagisk ? '1' : '0', // 0-关，1-开
       Gmsenable: form.enableGMS ? '1' : '0', // 0-关，1-开
       enforce: form.enforce !== false, // 安全模式，默认开启
+      adbPort: (form.enforce !== false && form.adbPort !== undefined) ? Number(form.adbPort) : 0, // ADB端口，安全模式下生效，0不开启ADB
       PINCode: form.lockScreenPassword, // 锁屏密码
       randomFile: form.randomFile || false, // 随机系统文件
      // VpcID: form.vpcNodeId || '', // VPC节点ID
@@ -13859,6 +13863,56 @@ const refreshData = async () => {
 }
 
 
+// ADB端口禁用列表（这些端口已被其他服务占用）
+const FORBIDDEN_ADB_PORTS = new Set([9082, 9083, 10000, 10001, 10006, 10007, 10008])
+
+// 校验 ADB 端口
+const validateAdbPort = (value) => {
+  if (value === null || value === undefined || value === '') {
+    createForm.value.adbPort = 5555
+    return
+  }
+  const port = Number(value)
+  if (isNaN(port) || port < 0) {
+    ElMessage.warning('ADB端口不能小于0，已重置为默认值5555')
+    createForm.value.adbPort = 5555
+    return
+  }
+  if (port > 65535) {
+    ElMessage.warning('ADB端口不能超过65535，已重置为65535')
+    createForm.value.adbPort = 65535
+    return
+  }
+  if (port !== 0 && FORBIDDEN_ADB_PORTS.has(port)) {
+    ElMessage.warning(`端口 ${port} 已被系统服务占用（9082/9083/10000/10001/10006/10007/10008），请使用其他端口`)
+    createForm.value.adbPort = 5555
+    return
+  }
+}
+
+// 从容器实例中动态获取 ADB 端口
+// 优先读取实例的 adbPort 字段，否则从 portBindings 中排除已知端口后推断
+const getInstanceAdbPort = (instance) => {
+  if (!instance) return 5555
+  // 优先使用实例中保存的 adbPort 字段
+  if (instance.adbPort && instance.adbPort !== 0) {
+    return Number(instance.adbPort)
+  }
+  // 从 portBindings 中推断：排除已知端口后，剩余的可能是 ADB 端口
+  const knownPorts = new Set([8000, 9082, 9083, 10000, 10001, 10006, 10007, 10008])
+  const bindings = instance.portBindings || instance.PortBindings
+  if (bindings) {
+    for (const [key] of Object.entries(bindings)) {
+      const portNum = parseInt(key.split('/')[0])
+      if (!isNaN(portNum) && !knownPorts.has(portNum)) {
+        // 找到一个非已知端口，可能就是 ADB 端口
+        return portNum
+      }
+    }
+  }
+  // 默认回退到 5555
+  return 5555
+}
 
 // 从容器信息中提取端口映射
 const extractPort = (container, portNumber) => {
@@ -14015,7 +14069,7 @@ const getPortMappings = (instance, device) => {
       adb: {
         originalPort: 5555,
         mappedPort: portMap ? (portMap.get(5555) || 5555) : 5555,
-        description: 'AndroidADB',
+        description: 'AndroidADB(默认)',
         url: `${device}:${portMap ? (portMap.get(5555) || 5555) : 5555}`,
         isMapped: !!(portMap && portMap.get(5555))
       },
@@ -14034,7 +14088,9 @@ const getPortMappings = (instance, device) => {
   const isMytNetwork = instance && (instance.networkName === 'myt' || instance.networkMode === 'myt')
   const androidApiPort = isMytNetwork ? 9082 : (extractPort(instance, 9082) || 9082)
   const controlApiPort = isMytNetwork ? 9083 : (extractPort(instance, 9083) || 9083)
-  const adbPort = isMytNetwork ? 5555 : (extractPort(instance, 5555) || 5555)
+  // 从容器实例中动态获取 ADB 端口（优先从 adbPort 字段读取，否则从 portBindings 中推断）
+  const instanceAdbPort = getInstanceAdbPort(instance)
+  const adbPort = isMytNetwork ? instanceAdbPort : (extractPort(instance, instanceAdbPort) || instanceAdbPort)
   
   return {
     androidApi: {
@@ -14052,11 +14108,11 @@ const getPortMappings = (instance, device) => {
       isMapped: controlApiPort !== 9083
     },
     adb: {
-      originalPort: 5555,
+      originalPort: instanceAdbPort,
       mappedPort: adbPort,
       description: 'AndroidADB',
       url: `${device}:${adbPort}`,
-      isMapped: adbPort !== 5555
+      isMapped: adbPort !== instanceAdbPort
     },
     dockerApi: {
       originalPort: 8000,
@@ -17141,6 +17197,7 @@ const _parseV3RawContainers = (device, rawContainers) => {
       doboxFps: inst.doboxFps || '',
       macVlanIp: inst.networkName === 'myt' ? (inst.ip || '') : '',
       mytBridgeName: inst.networkName !== 'myt' ? (inst.networkName || '') : '',
+      adbPort: inst.adbPort || 5555, // ADB端口，默认5555
     }
     return mergeCloudMachineState(previousCache, newMachine)
   })
@@ -19368,6 +19425,12 @@ const handleBindsTest = async () => {
 
              <el-form-item :label="$t('common.secureMode')">
               <el-switch v-model="createForm.enforce" :active-text="$t('common.enable')" :inactive-text="$t('common.disable')" inline-prompt></el-switch>
+            </el-form-item>
+
+            <!-- ADB端口（安全模式下显示） -->
+            <el-form-item v-if="createForm.enforce" label="ADB端口">
+              <el-input-number v-model="createForm.adbPort" :min="0" :max="65535" :step="1" controls-position="right" style="width: 200px;" @change="validateAdbPort"></el-input-number>
+              <span style="margin-left: 8px; color: #909399; font-size: 12px;">设置0不开启ADB</span>
             </el-form-item>
             
             <div v-if="createForm.s5Type !== '0'" style="margin-top: 0; margin-bottom: 20px; padding: 15px; background-color: #f5f7fa; border-radius: 4px;">

@@ -1437,7 +1437,8 @@ func (a *App) DiscoverDevicesManually(ips string) ([]DeviceInfo, []string, error
 	}
 
 	// 处理响应
-	for i := 0; i < len(responseCh); i++ {
+	totalResponses := len(responseCh)
+	for i := 0; i < totalResponses; i++ {
 		select {
 		case data := <-responseCh:
 			parts := strings.Split(data.response, ":")
