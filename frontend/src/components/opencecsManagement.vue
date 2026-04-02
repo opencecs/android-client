@@ -681,6 +681,44 @@ const getInstanceByDeviceIp = (deviceIp) => {
 
 
 /**
+ * 同步本地登录 token 到设备
+ * 检查 localStorage 中是否有 'token'（非 opencecs_token），
+ * 如果有则调用设备的 /user/sync 接口将 token 同步过去。
+ * @param {string} deviceIp - 设备的公网 IP:Port（通过 8000 端口映射获得）
+ */
+const syncTokenToDevice = async (deviceIp) => {
+  const mytToken = localStorage.getItem('token')
+  if (!mytToken) {
+    console.log(`[Token同步] 本地无登录 token，跳过同步 (${deviceIp})`)
+    return
+  }
+  const syncUrl = `http://${deviceIp}/user/sync?mytToken=${encodeURIComponent(mytToken)}`
+  try {
+    console.log(`[Token同步] 开始同步 token 到设备 (${deviceIp})...`)
+    if (typeof window.goHttpRequest === 'function') {
+      const result = await window.goHttpRequest({
+        Method: 'GET',
+        URL: syncUrl,
+        Body: '',
+        Headers: {}
+      })
+      if (result && result.success) {
+        console.log(`[Token同步] ✅ token 同步成功 (${deviceIp}):`, JSON.stringify(result.body).substring(0, 200))
+      } else {
+        console.warn(`[Token同步] ⚠️ token 同步失败 (${deviceIp}):`, result)
+      }
+    } else {
+      // 降级方案：直接通过 fetch 调用
+      const res = await fetch(syncUrl)
+      const data = await res.json()
+      console.log(`[Token同步] ✅ token 同步成功 (${deviceIp}, fetch):`, data)
+    }
+  } catch (e) {
+    console.warn(`[Token同步] ❌ token 同步异常 (${deviceIp}):`, e.message)
+  }
+}
+
+/**
  * 统一处理所有实例的端口映射（优化版 — 支持缓存）
  * 
  * 流程：
@@ -823,6 +861,8 @@ const setupAllPortMappings = async (instances, version) => {
       window.addDiscoveredDevice(deviceObj)
       saveAddedDeviceIps()
       console.log(`[端口映射缓存] ✅ 设备已恢复注入: ${deviceIp}`)
+      // 异步同步本地 token 到设备（不阻塞后续流程）
+      syncTokenToDevice(deviceIp)
     }
 
     // 异步获取设备真实 ID 和名称（不阻塞后续流程）
@@ -938,6 +978,8 @@ const setupAllPortMappings = async (instances, version) => {
         // 立即保存已注入的设备 IP 到 localStorage，确保下次刷新能找到并清除
         saveAddedDeviceIps()
         console.log(`[端口映射] ✅ 设备已注入主机列表: ${deviceIp} (${deviceObj.name})`)
+        // 异步同步本地 token 到设备（不阻塞后续流程）
+        syncTokenToDevice(deviceIp)
       }
 
       // 3b. 先获取设备信息（通过 Go 后端 IPC，稳定可靠）

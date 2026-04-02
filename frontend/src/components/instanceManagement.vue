@@ -508,12 +508,10 @@ const instanceList = ref([])
 const searchHostRabbet = ref('')
 const searchState = ref('')
 
-const isClientSideMode = computed(() => {
-    const searchTerm = searchHostRabbet.value.trim()
-    const isIP = searchTerm && isIPSearch(searchTerm)
-    const hasStateFilter = searchState.value !== '' && searchState.value !== null && searchState.value !== undefined
-    return isIP || hasStateFilter
-})
+const isClientSideMode = computed(() => {
+    // 始终使用客户端分页（因为已按主机设备过滤，数据量可控）
+    return true
+})
 
 // 过滤显示的子实例
 const getDisplayChildren = (row) => {
@@ -645,16 +643,12 @@ const getStateText = (state) => {
 // 页码变化
 const handleCurrentChange = (page) => {
     currentPage.value = page
-    console.log('页码变化:', page)
-    fetchInstances()
 }
 
 // 每页条数变化
 const handleSizeChange = (size) => {
-    console.log('每页条数变化:', size)
     pageSize.value = size
     currentPage.value = 1
-    fetchInstances()
 }
 
 // 获取选中实例
@@ -961,11 +955,10 @@ const fetchInstances = async () => {
         const searchTerm = searchHostRabbet.value.trim()
         const isIPMode = searchTerm && isIPSearch(searchTerm)
         const hasStateFilter = searchState.value !== '' && searchState.value !== null && searchState.value !== undefined
-        const fetchAll = isIPMode || hasStateFilter
         
-        // 如果是IP搜索或状态过滤，获取所有数据进行客户端过滤
-        const page = fetchAll ? 1 : currentPage.value
-        const size = fetchAll ? 1000 : pageSize.value // IP搜索或状态过滤时获取更多数据
+        // 始终获取全量数据，因为需要按主机设备过滤
+        const page = 1
+        const size = 1000
         
         const result = await GetUserRabbetListWithToken(
             currentToken,
@@ -979,6 +972,18 @@ const fetchInstances = async () => {
         if (result.data && result.data.code == 0) {
             let dataList = result.data.data || []
             fillEmptySlots(dataList)
+
+            // 🔑 核心过滤：只保留当前主机页面中存在的设备对应的实例
+            // 通过 rabbet（设备ID）与 props.devices 中的 id 匹配
+            if (props.devices && props.devices.length > 0) {
+                const deviceIdSet = new Set(props.devices.map(d => String(d.id)))
+                const beforeCount = dataList.length
+                dataList = dataList.filter(item => deviceIdSet.has(String(item.rabbet)))
+                console.log(`[实例过滤] 主机设备数: ${props.devices.length}, 实例总数: ${beforeCount}, 过滤后: ${dataList.length}`)
+            } else {
+                console.log('[实例过滤] 当前无主机设备，显示空列表')
+                dataList = []
+            }
 
             // 将有IP的实例排在前面
             dataList.sort((a, b) => {
@@ -1001,7 +1006,7 @@ const fetchInstances = async () => {
                 }
             } else {
                 instanceList.value = dataList
-                total.value = result.data.count || result.data.total || dataList.length
+                total.value = dataList.length
             }
         } else {
             instanceList.value = []
