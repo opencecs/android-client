@@ -403,9 +403,8 @@
               </div>
               <div class="cloud-machine-info-small">
                 <el-space size="small" class="cloud-machine-actions">
-                  <template v-if="props.selectedCloudDevice">
-                    <!-- 不管是否有容器实例，只要选择了设备就显示创建按钮 -->
-                    <el-button size="small" type="primary" class="device-create-btn" @click.stop="showCreateDialog(props.selectedCloudDevice, 'slot', i)">{{ t('common.create') }}</el-button>
+                    <!-- 创建按钮：始终可点击，未选设备时提示用户 -->
+                    <el-button size="small" type="primary" class="device-create-btn" @click.stop="props.selectedCloudDevice ? showCreateDialog(props.selectedCloudDevice, 'slot', i) : ElMessage.warning(t('common.selectDeviceFirst'))">{{ t('common.create') }}</el-button>
                     
                     <!-- ADB按键，只在有容器实例且状态为运行中时显示 -->
                     <template v-if="props.selectedCloudDevice && props.instances.find(inst => inst.indexNum === i && inst.status === 'running')">
@@ -417,11 +416,6 @@
                         ADB
                       </el-button>
                     </template>
-                  </template>
-                  <template v-else>
-                    <!-- 未选择设备时，不显示按钮 -->
-                    <el-button size="small" type="primary" disabled>{{ t('common.create') }}</el-button>
-                  </template>
                   
                   
                   

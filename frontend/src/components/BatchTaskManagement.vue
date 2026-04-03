@@ -167,7 +167,7 @@
 
                 <!-- 循环次数 + 执行按钮 -->
                 <div style="margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
-                  <span style="white-space: nowrap; font-size: 13px; color: #606266;">{{ $t('common.loopCount') }}：</span>
+                  <span style="white-space: nowrap; font-size: 13px; color: #606266;">{{ $t('common.loopCount') }}</span>
                   <el-input-number
                     v-model="loopCount"
                     :min="1"

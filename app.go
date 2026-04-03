@@ -6066,13 +6066,18 @@ func (a *App) GetLocalTemplateInfo(modelName string) (TemplateInfo, error) {
 						latestTemplate = templateInfo
 					}
 				} else if strings.Contains(modelName, "_") {
-					// 如果机型名称包含下划线，提取原始机型名称进行匹配
-					originalModelName := strings.Split(modelName, "_")[0]
-					if templateInfo.ModelName == originalModelName {
-						// 比较版本号，保留最新版本
-						if templateInfo.Version > latestVersion {
-							latestVersion = templateInfo.Version
-							latestTemplate = templateInfo
+					// 如果机型名称包含下划线，逐步去掉末尾的 _xxx 后缀进行匹配
+					// 例如 V2408A_16_610 依次尝试 V2408A_16、V2408A
+					remaining := modelName
+					for strings.Contains(remaining, "_") {
+						lastIdx := strings.LastIndex(remaining, "_")
+						remaining = remaining[:lastIdx]
+						if templateInfo.ModelName == remaining {
+							if templateInfo.Version > latestVersion {
+								latestVersion = templateInfo.Version
+								latestTemplate = templateInfo
+							}
+							break
 						}
 					}
 				}

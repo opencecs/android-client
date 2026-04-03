@@ -1,4 +1,4 @@
-﻿<template>
+<template>
     <div class="backup-management-container">
         <div class="backup-content">
             <el-tabs v-model="activeTab" class="backup-tabs" @tab-change="handleTabChange">
@@ -1293,6 +1293,7 @@ defineExpose({
 
 :deep(.el-tab-pane) {
     height: 100%;
+    overflow-y: auto;
 }
 
 .tab-content {

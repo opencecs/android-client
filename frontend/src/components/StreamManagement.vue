@@ -93,11 +93,11 @@
                     <td>
                       <div class="action-buttons">
                         <el-button size="small" type="primary" :disabled="!stream.publisherIP" @click="openDistributeDialog(stream)">
-                          <i class="el-icon-share">></i> {{ $t('stream.distribute') }}</el-button>
+                          <i class="el-icon-share"></i> {{ $t('stream.distribute') }}</el-button>
                         <el-button size="small" type="warning" :disabled="!stream.publisherIP" @click="handleStopPush(stream)">
-                          <i class="el-icon-video-pause">></i> {{ $t('stream.disconnect') }}</el-button>
+                          <i class="el-icon-video-pause"></i> {{ $t('stream.disconnect') }}</el-button>
                         <el-button size="small" type="danger" plain @click="handleDeleteStream(stream)">
-                          <i class="el-icon-delete">></i> {{ $t('common.delete') }}</el-button>
+                          <i class="el-icon-delete"></i> {{ $t('common.delete') }}</el-button>
                       </div>
                     </td>
                   </tr>
@@ -324,7 +324,7 @@
                         <el-button type="success" size="small" @click="openProjectionForDistribution(item)">
                           <i class="el-icon-monitor"></i>{{ $t('common.projection') }}</el-button>
                         <el-button type="danger" size="small" plain @click="removeDistribution(item)">
-                          <i class="el-icon-delete">></i> {{ $t('common.delete') }}</el-button>
+                          <i class="el-icon-delete"></i> {{ $t('common.delete') }}</el-button>
                       </div>
                     </td>
                   </tr>
@@ -381,7 +381,7 @@
                         <el-button type="success" size="small" @click="openProjectionForDistribution(item)">
                           <i class="el-icon-monitor"></i>{{ $t('common.projection') }}</el-button>
                         <el-button type="danger" size="small" plain @click="removeDistribution(item)">
-                          <i class="el-icon-delete">></i> {{ $t('common.delete') }}</el-button>
+                          <i class="el-icon-delete"></i> {{ $t('common.delete') }}</el-button>
                       </div>
                     </td>
                   </tr>
@@ -584,6 +584,7 @@ import { ref, onMounted, computed, onBeforeUnmount, watch, getCurrentInstance } 
 
 const _instance = getCurrentInstance()
 const $t = (key, params) => _instance?.proxy?.$t(key, params) || key
+const t = $t
 
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading, VideoCamera } from '@element-plus/icons-vue'
@@ -1138,7 +1139,7 @@ const addNewStream = async () => {
 
 const handleDeleteStream = async (stream) => {
   try {
-    await ElMessageBox.confirm(`确定要删除流 "${stream.streamName}" 吗？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(`确定要删除流 "${stream.streamName}" 吗？`, '提示', { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') })
     await DeleteStreamName(stream.streamName)
     ElMessage.success(t('common.删除成功'))
     refreshStreams()
@@ -1331,7 +1332,7 @@ const openProjectionForDistribution = async (item) => {
 
 const removeDistribution = async (row) => {
   try {
-    await ElMessageBox.confirm('确定要删除这条分发记录吗？', '提示', { type: 'warning' })
+    await ElMessageBox.confirm('确定要删除这条分发记录吗？', '提示', { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') })
     if (row?.protocol === 'p2p') {
       await stopP2PDistribution(row)
     }
@@ -1670,7 +1671,7 @@ const confirmP2PDistribute = async () => {
 
 const handleStopPush = async (stream) => {
   try {
-    await ElMessageBox.confirm('确定要断开此推流吗？', '提示', { type: 'warning' })
+    await ElMessageBox.confirm('确定要断开此推流吗？', '提示', { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') })
     const res = await StopPushSession(stream.streamName)
     if (res.success) {
       ElMessage.success(t('common.已断开'))
@@ -1921,7 +1922,7 @@ const stopCameraStream = async (item) => {
 
 const removeCameraStream = async (item) => {
   try {
-    await ElMessageBox.confirm('确定要删除这条摄像头推流吗？', '提示', { type: 'warning' })
+    await ElMessageBox.confirm('确定要删除这条摄像头推流吗？', '提示', { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') })
     if (item.status === 'running') await stopCameraStream(item)
     const idx = cameraStreams.value.findIndex(c => c.id === item.id)
     if (idx !== -1) cameraStreams.value.splice(idx, 1)

@@ -51,7 +51,6 @@
         :data="backupFiles" 
         style="width: 100%" 
         v-loading="loading"
-        max-height="500"
       >
         <el-table-column prop="name" :label="$t('common.fileName')" min-width="200" />
         <el-table-column :label="$t('common.fileSize')" width="120" align="center">
@@ -1055,9 +1054,7 @@ onMounted(() => {
 <style scoped>
 .batch-import {
   padding: 20px;
-  height: 100%;
   box-sizing: border-box;
-  overflow-y: auto;
 }
 
 .slot-grid {
