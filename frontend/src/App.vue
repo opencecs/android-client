@@ -19341,7 +19341,7 @@ const handleBindsTest = async () => {
                 <el-option label="Android 13" value="13"></el-option>
                 <el-option label="Android 14" value="14"></el-option>
                 <el-option label="Android 15" value="15"></el-option>
-                <el-option label="Android 16" value="16"></el-option>
+                <el-option v-if="createDeviceApiVersionNumber === null || createDeviceApiVersionNumber >= 92" label="Android 16" value="16"></el-option>
               </el-select>
             </el-form-item>
             <!-- 镜像分类 -->

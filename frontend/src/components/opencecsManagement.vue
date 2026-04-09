@@ -58,7 +58,7 @@
         <table class="instance-table">
           <thead>
             <tr>
-              <th>{{ $t('common.instanceID') }}</th>
+              <th>{{ $t('common.publicAddress') }}</th>
               <th>{{ $t('common.instanceNameLabel') }}</th>
               <th>{{ $t('common.coreBoard') }}</th>
               <th>{{ $t('common.memory') }}</th>
@@ -72,7 +72,7 @@
           </thead>
           <tbody>
             <tr v-for="item in filteredInstanceList" :key="item.instance_id">
-              <td class="monospace">{{ item.instance_id }}</td>
+              <td class="monospace" :title="item.instance_id">{{ getPublicAddress(item.instance_id) }}</td>
               <td>{{ item.instance_name }}</td>
               <td>{{ item.board_name }}</td>
               <td>{{ item.memory }}GB</td>
@@ -406,6 +406,8 @@ const listLoading = ref(false)
 const addedDeviceIps = new Set()
 // 记录 deviceIp → { instanceId, instance } 的精确映射，供容器创建后查找实例
 const deviceIpToInstanceMap = new Map()
+// 响应式版本号：每次端口映射更新时递增，触发 getPublicAddress 重新计算
+const portMapVersion = ref(0)
 // 全局端口映射表：deviceIp → Map<privatePort, publicPort>
 // 供 App.vue 构建 URL 时将容器 HostPort 替换为公网端口
 // 持久化到 localStorage，页面刷新后仍可用
@@ -614,6 +616,26 @@ const isExpireSoon = (expireAt) => {
   if (!expireAt) return false
   const diff = new Date(expireAt).getTime() - Date.now()
   return diff > 0 && diff < 3 * 24 * 3600 * 1000 // 3天内到期
+}
+
+// 根据实例ID获取公网IP+端口地址，用于替代实例ID显示
+const getPublicAddress = (instanceId) => {
+  // 读取响应式版本号，使 Vue 感知端口映射变化后重新渲染
+  void portMapVersion.value
+  // 先从内存中的 deviceIpToInstanceMap 反查（精确匹配）
+  for (const [deviceIp, instance] of deviceIpToInstanceMap) {
+    if (instance.instance_id === instanceId) {
+      return deviceIp
+    }
+  }
+  // 再从 localStorage 缓存查找
+  const instanceDeviceMap = loadInstanceDeviceMap()
+  const cachedInfo = instanceDeviceMap[instanceId]
+  if (cachedInfo && cachedInfo.deviceIp) {
+    return cachedInfo.deviceIp
+  }
+  // 无映射信息时回退显示实例ID
+  return instanceId
 }
 
 const operateInstance = async (item, action) => {
@@ -846,6 +868,7 @@ const setupAllPortMappings = async (instances, version) => {
     // 注入设备到主机列表
     addedDeviceIps.add(deviceIp)
     deviceIpToInstanceMap.set(deviceIp, instance)
+    portMapVersion.value++
     const deviceObj = {
       ip: deviceIp,
       type: 'android',
@@ -960,6 +983,7 @@ const setupAllPortMappings = async (instances, version) => {
       // 3a. 先注入设备到主机列表（确保即使后续请求超时，设备也能显示）
       addedDeviceIps.add(deviceIp)
       deviceIpToInstanceMap.set(deviceIp, instance)
+      portMapVersion.value++
 
       // 先用实例名作为默认设备名，后续查到真实信息再更新
       const deviceObj = {
@@ -1103,6 +1127,7 @@ const setupAllPortMappings = async (instances, version) => {
           savePortMapToStorage()
           // 保存实例到设备映射缓存
           saveInstanceDeviceMap(instanceId, publicIp, deviceIp)
+          portMapVersion.value++
           console.log(`[端口映射] 端口映射表已构建并缓存 (${deviceIp}):`, Object.fromEntries(portMap))
         }
       } catch (e) {
@@ -1282,6 +1307,7 @@ const ensureContainerPortMappings = async (instanceId, deviceIp) => {
       // 同步保存实例到设备映射缓存，下次刷新时可直接恢复
       const publicIp = deviceIp.includes(':') ? deviceIp.split(':')[0] : deviceIp
       saveInstanceDeviceMap(instanceId, publicIp, deviceIp)
+      portMapVersion.value++
       console.log(`[端口映射] 容器创建后端口映射表已更新并缓存 (${deviceIp}):`, Object.fromEntries(portMap))
     }
   } catch (e) {
