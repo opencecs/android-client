@@ -155,7 +155,7 @@ tasks:
           done | tr '\n' ' '
       LDFLAGS:
         sh: |
-          python build/get_version.py 2>/dev/null | grep "^##vso\[task.setvariable variable=LDFLAGS;\]" | sed 's/##vso\[task.setvariable variable=LDFLAGS;\]//' || echo "-X edgeclient/updater.AppVersion=1.5.5 -X edgeclient/updater.BuildTime=unknown -w -s -H windowsgui"
+          python build/get_version.py 2>/dev/null | grep "^##vso\[task.setvariable variable=LDFLAGS;\]" | sed 's/##vso\[task.setvariable variable=LDFLAGS;\]//' || echo "-X edgeclient/updater.AppVersion=1.5.6 -X edgeclient/updater.BuildTime=unknown -w -s -H windowsgui"
 
   package:
     summary: Packages the application

@@ -2178,8 +2178,9 @@
                 </el-steps>
 
                 <div v-if="stepActive === 0" class="step-content">
-                    <div style="margin-bottom: 15px;">
+                    <div style="margin-bottom: 15px; display: flex; gap: 10px;">
                         <el-input v-model="vpcContainerSearch" placeholder="按云机名称搜索" clearable style="width: 250px;" />
+                        <el-input v-model="vpcSlotSearch" placeholder="按坑位号搜索" clearable style="width: 250px;" />
                     </div>
 
                     <el-table :data="filteredVpcContainerList" style="width: 100%" stripe height="100%" @selection-change="handleVpcContainerSelectionChange">
@@ -2788,6 +2789,7 @@ const selectedContainer = ref(null)
 const selectedVpcNode = ref('')
 const vpcContainerList = ref([])
 const vpcContainerSearch = ref('')
+const vpcSlotSearch = ref('')
 const vpcSelectedContainers = ref([])
 const vpcGroupList = ref([])
 const vpcSelectedGroupId = ref('')
@@ -2804,11 +2806,16 @@ const canNextVpcStep = computed(() => {
 })
 
 const filteredVpcContainerList = computed(() => {
-    if (!vpcContainerSearch.value) return vpcContainerList.value
-    const search = vpcContainerSearch.value.toLowerCase()
-    return vpcContainerList.value.filter(c =>
-        c.name && c.name.toLowerCase().includes(search)
-    )
+    let list = vpcContainerList.value
+    if (vpcContainerSearch.value) {
+        const search = vpcContainerSearch.value.toLowerCase()
+        list = list.filter(c => c.name && c.name.toLowerCase().includes(search))
+    }
+    if (vpcSlotSearch.value) {
+        const slotSearch = vpcSlotSearch.value.trim()
+        list = list.filter(c => c.indexNum !== undefined && String(c.indexNum).includes(slotSearch))
+    }
+    return list
 })
 
 const extractNodeNumber = (remarks) => {
@@ -3737,6 +3744,8 @@ const setContainerVpc = async () => {
     vpcContainerList.value = []
     vpcGroupList.value = []
     vpcNodeList.value = []
+    vpcContainerSearch.value = ''
+    vpcSlotSearch.value = ''
     vpcSelectMode.value = 'specified'
     stepActive.value = 0
     vpcDialogVisible.value = true
