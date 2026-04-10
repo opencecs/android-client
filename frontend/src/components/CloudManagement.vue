@@ -1638,8 +1638,12 @@ const connectTerminal = (instance, targetDevice = null) => {
     })
     
     // 添加键盘事件监听，支持复制粘贴
+    // Electron环境中xterm.js不会自动处理粘贴，需要手动拦截
     term.attachCustomKeyEventHandler((event) => {
-      // 支持 Ctrl+C 复制
+      // 只处理 keydown 事件，避免 keyup 时重复触发
+      if (event.type !== 'keydown') return true
+      
+      // 支持 Ctrl+C 复制（仅在有选中文本时拦截，否则让xterm发送SIGINT）
       if (event.ctrlKey && event.key === 'c') {
         if (term.hasSelection()) {
           navigator.clipboard.writeText(term.getSelection())
@@ -1651,67 +1655,38 @@ const connectTerminal = (instance, targetDevice = null) => {
       }
       // 支持 Ctrl+V 粘贴
       else if (event.ctrlKey && event.key === 'v') {
-        // 阻止默认行为
+        // 阻止浏览器默认的paste事件，防止xterm通过onData重复发送
         event.preventDefault()
         event.stopPropagation()
         
-        // 使用传统方式获取剪贴板内容，提高兼容性
-        const textarea = document.createElement('textarea')
-        document.body.appendChild(textarea)
-        textarea.focus()
-        
-        // 尝试执行粘贴操作
-        if (document.execCommand('paste')) {
-          const text = textarea.value
-          if (text) {
-            // 写入终端
-            term.write(text)
-          }
-        } else {
-          // 传统方式失败，尝试使用现代剪贴板API
-          navigator.clipboard.readText()
-            .then(text => {
-              if (text) {
-                term.write(text)
+        navigator.clipboard.readText()
+          .then(text => {
+            if (text && socket && socket.readyState === WebSocket.OPEN) {
+              // 清理不可见的Unicode字符（零宽空格、BOM、零宽连接符等）
+              const cleanText = text
+                .replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g, '')
+                .replace(/\r\n/g, '\n')
+                .replace(/\r/g, '\n')
+              
+              if (cleanText) {
+                sendJson({ type: "stdin", data: cleanText })
               }
-            })
-            .catch(err => {
-              console.error('从剪贴板读取失败:', err)
-            })
-        }
-        
-        // 清理临时元素
-        document.body.removeChild(textarea)
+            }
+          })
+          .catch(err => {
+            console.error('从剪贴板读取失败:', err)
+          })
+        // 返回 false 阻止 xterm 处理此按键
         return false
       }
       return true
     })
     
-    // 同时监听document的keydown事件，作为备选方案
-    const handleDocumentKeyDown = (event) => {
-      // 只处理终端焦点时的事件
-      if (document.activeElement === term.element) {
-        if (event.ctrlKey && event.key === 'v') {
-          event.preventDefault()
-          event.stopPropagation()
-          
-          navigator.clipboard.readText()
-            .then(text => {
-              if (text) {
-                term.write(text)
-              }
-            })
-            .catch(err => {
-              console.error('从剪贴板读取失败:', err)
-            })
-        }
-      }
-    }
-    
-    document.addEventListener('keydown', handleDocumentKeyDown)
-    
-    // 保存事件监听器，以便在关闭终端时移除
-    terminalEventListeners.push(handleDocumentKeyDown)
+    // 拦截终端容器上的paste事件，防止xterm内部的paste处理导致重复发送
+    content.addEventListener('paste', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+    })
     
     // 不显示连接信息，保持终端界面简洁
     
@@ -1817,18 +1792,24 @@ const connectTerminal = (instance, targetDevice = null) => {
       }, 3000)
     }
     
-    // 输入监听
+    // 输入监听（包括键盘输入和xterm原生粘贴）
     term.onData(data => {
       // 检查是否是当前实例，防止操作已关闭的终端
       if (terminalInstanceId !== newInstanceId || !socket || socket.readyState !== WebSocket.OPEN) {
         return
       }
       
-      // 如果按的是 Ctrl+C 或 Ctrl+D，处理特殊情况
-      if (data === '\x03' || data === '\x04') {
-        sendJson({ type: "stdin", data: data })
-      } else {
-        sendJson({ type: "stdin", data: data })
+      // 对于多字符输入（通常是粘贴），清理不可见的Unicode字符
+      let cleanData = data
+      if (data.length > 1) {
+        cleanData = data
+          .replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g, '')  // 移除零宽字符和非断行空格
+          .replace(/\r\n/g, '\n')  // 统一换行符
+          .replace(/\r/g, '\n')    // 处理旧式Mac换行
+      }
+      
+      if (cleanData) {
+        sendJson({ type: "stdin", data: cleanData })
       }
     })
     
