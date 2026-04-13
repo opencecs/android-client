@@ -11691,6 +11691,8 @@ func (a *App) startWindowsProjectionProcess(config ProjectionConfig, windowID, w
 		"-ip", config.DeviceIP,
 		"-vport", strconv.Itoa(videoPort),
 		"-cport", strconv.Itoa(controlPort),
+		"-width", strconv.Itoa(config.Width),
+		"-height", strconv.Itoa(config.Height),
 	}
 	if orient == 1 {
 		args = append(args, "-landscape")
