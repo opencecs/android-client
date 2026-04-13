@@ -18561,9 +18561,9 @@ const handleBindsTest = async () => {
         </el-tab-pane>
 
         <!-- opencecs -->
-        <el-tab-pane label="OpenCecs" name="opencecs-management">
+        <!-- <el-tab-pane label="OpenCecs" name="opencecs-management">
           <OpencecsManagement ref="opencecsManagementRef" />
-        </el-tab-pane>
+        </el-tab-pane> -->
 
       </el-tabs>
     </el-main>

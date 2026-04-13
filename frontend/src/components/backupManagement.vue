@@ -708,7 +708,7 @@ const handleConfirmAddBackupMachine = async () => {
                   name: container.name
                 })
             },
-            30000  // 备份操作给 30 秒
+            3000000  // 备份操作给 30 秒
         )
 
         if (response.ok) {
