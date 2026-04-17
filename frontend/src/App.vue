@@ -15886,6 +15886,31 @@ const handleBatchSwitchModelCancel = () => {
   }, 100)
 }
 
+// 批量新机 - 根据当前云机安卓版本过滤线上机型（收集所有选中容器的版本）
+const filteredPhoneModelsForBatch = computed(() => {
+  let models = phoneModels.value
+  const targets = batchSwitchModelTargets.value
+  if (targets.length > 0) {
+    const verSet = new Set()
+    for (const t of targets) {
+      const imageUrl = t.image || t.Image
+      if (!imageUrl) continue
+      const img = imageList.value.find(i => i.url === imageUrl)
+      if (img && img.os_ver) {
+        const m = img.os_ver.match(/and(\d+)/i)
+        if (m && m[1]) verSet.add(m[1])
+      }
+    }
+    if (verSet.size > 0) {
+      models = models.filter(m => {
+        if (!m.android_version) return true
+        return verSet.has(String(m.android_version))
+      })
+    }
+  }
+  return models
+})
+
 // 批量新机 - 机型槽管理
 const addNewModelSlot = async (type = 'online') => {
   // 检查是否需要获取机型列表
@@ -21678,9 +21703,9 @@ const handleBindsTest = async () => {
                   <!-- 线上机型 -->
                   <template v-if="!modelSlot.type || modelSlot.type === 'online'">
                     <el-option 
-                      v-for="model in phoneModels" 
-                      :key="model.id" 
-                      :label="model.name" 
+                      v-for="model in filteredPhoneModelsForBatch"
+                      :key="model.id"
+                      :label="model.name"
                       :value="model.id"
                     >
                       <div style="display: flex; justify-content: space-between;">

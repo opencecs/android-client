@@ -11670,6 +11670,11 @@ func (a *App) startWindowsProjectionProcess(config ProjectionConfig, windowID, w
 		}
 	}
 
+	// 横屏模式下，如果宽<高则交换宽高，确保传给player的尺寸与方向一致
+	if orient == 1 && config.Width < config.Height {
+		config.Width, config.Height = config.Height, config.Width
+	}
+
 	term := config.Term
 	if term == "" {
 		term = windowTitle

@@ -262,10 +262,10 @@
                     <span>/</span>
                     <span>{{ t('common.latest') }}: {{ deviceVersionInfo.get(scope.row.id).latestVersion || t('common.unknown') }}</span>
                   </div>
-                  <el-button 
-                    v-if="deviceVersionInfo.get(scope.row.id).currentVersion < deviceVersionInfo.get(scope.row.id).latestVersion" 
-                    size="small" 
-                    type="primary" 
+                  <el-button
+                    v-if="Number(deviceVersionInfo.get(scope.row.id).currentVersion) < Number(deviceVersionInfo.get(scope.row.id).latestVersion)"
+                    size="small"
+                    type="primary"
                     style="margin-left: auto;"
                     @click="handleUpgradeDevice(scope.row)"
                   >
