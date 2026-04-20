@@ -2807,6 +2807,11 @@ const canNextVpcStep = computed(() => {
 
 const filteredVpcContainerList = computed(() => {
     let list = vpcContainerList.value
+    // 过滤掉已分配节点的云机
+    if (containerRuleList.value.length > 0) {
+        const assignedNames = new Set(containerRuleList.value.map(r => r.containerName))
+        list = list.filter(c => !assignedNames.has(c.name))
+    }
     if (vpcContainerSearch.value) {
         const search = vpcContainerSearch.value.toLowerCase()
         list = list.filter(c => c.name && c.name.toLowerCase().includes(search))
