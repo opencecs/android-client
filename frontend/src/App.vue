@@ -22,6 +22,7 @@ import AiAssistant from './components/aiAssistant.vue'  // 【使用新的完整
 import RpaAgent from './components/rpaAgent.vue'
 import CustomerService from './components/customerService.vue'
 import OpencecsManagement from './components/opencecsManagement.vue'
+import ExtensionService from './components/ExtensionService.vue'
 
 
 
@@ -1520,6 +1521,67 @@ const filteredDevices = computed(() => {
   // 按IP地址排序
   return filtered.sort((a, b) => compareIPs(a.ip, b.ip))
 })
+
+// 扩展服务设备列表（在线 + 过滤P类型设备）
+const extensionServiceDevices = computed(() => {
+  return filteredDevicesByGroup.value
+})
+
+// 扩展服务 - 升级设备固件
+const handleUpgradeDevice = async (device) => {
+  if (!device) return
+  try {
+    await ElMessageBox.confirm(`确定要升级设备 ${device.ip} 的固件吗？升级过程可能需要几分钟时间。`, '升级确认', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+
+    const versionInfo = deviceVersionInfo.value.get(device.id)
+    if (!versionInfo || !versionInfo.latestVersion) {
+      ElMessage.error(`设备 ${device.ip} 未获取到最新版本信息`)
+      return
+    }
+
+    let password = getDevicePassword(device.ip)
+    const result = await UpgradeDeviceWithNewAPI(device.ip, versionInfo.latestVersion, password || '')
+
+    if (result.success) {
+      ElMessage.success(`设备 ${device.ip} 升级成功`)
+      return
+    }
+
+    if (result.errorType === 'auth_required') {
+      const savedPassword = getDevicePassword(device.ip)
+      if (!savedPassword) {
+        showAuthDialog(device, async (newPassword) => {
+          const retryResult = await UpgradeDeviceWithNewAPI(device.ip, versionInfo.latestVersion, newPassword || '')
+          if (retryResult.success) {
+            ElMessage.success(`设备 ${device.ip} 升级成功`)
+          } else {
+            ElMessage.error(`设备 ${device.ip} 升级失败: ${retryResult.message}`)
+          }
+        })
+        ElMessage.warning('设备需要认证，请输入设备密码')
+      } else {
+        showAuthDialog(device, async (newPassword) => {
+          const retryResult = await UpgradeDeviceWithNewAPI(device.ip, versionInfo.latestVersion, newPassword || '')
+          if (retryResult.success) {
+            ElMessage.success(`设备 ${device.ip} 升级成功`)
+          } else {
+            ElMessage.error(`设备 ${device.ip} 升级失败: ${retryResult.message}`)
+          }
+        })
+      }
+      return
+    }
+    ElMessage.error(`设备 ${device.ip} 升级失败: ${result.message}`)
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(`设备 ${device.ip} 升级失败: ${error.message}`)
+    }
+  }
+}
 
 // 创建云机对话框
 const createDialogVisible = ref(false)
@@ -3447,6 +3509,14 @@ const fetchVpcGroupList = async (deviceIP) => {
 }
 
 // 处理分组选择变化
+const handleSandboxModeChange = (val) => {
+  if (!val) {
+    createForm.value.containerDataDiskSize = ''
+  } else {
+    createForm.value.containerDataDiskSize = '16G'
+  }
+}
+
 const handleVpcGroupChange = (groupId) => {
   createForm.value.vpcNodeId = ''
   createForm.value.vpcSelectMode = 'specified'
@@ -18585,6 +18655,16 @@ const handleBindsTest = async () => {
           <InterconnectedCloudMachines :token="token" />
         </el-tab-pane>
 
+        <!-- 扩展服务 -->
+        <el-tab-pane :label="t('menu.extensionService')" name="extension-service">
+          <ExtensionService
+            :devices="extensionServiceDevices"
+            :device-firmware-info="deviceFirmwareInfo"
+            :devices-status-cache="devicesStatusCache"
+            @upgrade-device="handleUpgradeDevice"
+          />
+        </el-tab-pane>
+
         <!-- opencecs -->
         <!-- <el-tab-pane label="OpenCecs" name="opencecs-management">
           <OpencecsManagement ref="opencecsManagementRef" />
@@ -19179,9 +19259,9 @@ const handleBindsTest = async () => {
 
           <div style="display: flex; gap: 20px; align-items: center;">
             <el-form-item :label="$t('common.sandboxMode')" style="flex: 1;">
-               <el-switch v-model="createForm.containerSandboxMode" :active-text="$t('common.enable')" inline-prompt disabled></el-switch>
+               <el-switch v-model="createForm.containerSandboxMode" :active-text="$t('common.enable')" :inactive-text="$t('common.disable')" inline-prompt @change="handleSandboxModeChange"></el-switch>
             </el-form-item>
-            <el-form-item :label="$t('common.dataDiskSize')" style="flex: 1;">
+            <el-form-item v-if="createForm.containerSandboxMode" :label="$t('common.dataDiskSize')" style="flex: 1;">
                <el-radio-group v-model="createForm.containerDataDiskSize">
                  <el-radio label="16G">16G</el-radio>
                  <el-radio label="32G">32G</el-radio>

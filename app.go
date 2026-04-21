@@ -11696,8 +11696,6 @@ func (a *App) startWindowsProjectionProcess(config ProjectionConfig, windowID, w
 		"-ip", config.DeviceIP,
 		"-vport", strconv.Itoa(videoPort),
 		"-cport", strconv.Itoa(controlPort),
-		"-width", strconv.Itoa(config.Width),
-		"-height", strconv.Itoa(config.Height),
 	}
 	if orient == 1 {
 		args = append(args, "-landscape")
@@ -11706,7 +11704,7 @@ func (a *App) startWindowsProjectionProcess(config ProjectionConfig, windowID, w
 		args = append(args, "-list", config.List)
 	}
 	if term != "" {
-		args = append(args, "-term", term)
+		args = append(args, "-title", term)
 	}
 
 	log.Printf("[投屏] 启动新投屏进程: %s %v", playerExe, args)
@@ -11721,28 +11719,6 @@ func (a *App) startWindowsProjectionProcess(config ProjectionConfig, windowID, w
 			}
 		}
 		log.Printf("[Player] 投屏目录文件: %s", strings.Join(fileList, ", "))
-	}
-
-	// Pre-check: verify required DLLs exist in extracted directory
-	requiredDLLs := []string{"lgplayer.dll", "SDL2.dll", "SDL2_image.dll", "SDL2_ttf.dll", "pthreadVC2.dll"}
-	var missingDLLs []string
-	for _, dll := range requiredDLLs {
-		dllPath := filepath.Join(playerDir, dll)
-		if _, err := os.Stat(dllPath); os.IsNotExist(err) {
-			missingDLLs = append(missingDLLs, dll)
-		}
-	}
-	if len(missingDLLs) > 0 {
-		errMsg := fmt.Sprintf("投屏缺少依赖文件: %s (目录: %s, 已有文件: %s)",
-			strings.Join(missingDLLs, ", "), playerDir, strings.Join(fileList, ", "))
-		log.Printf("[Player] %s", errMsg)
-		projectionLock.Lock()
-		delete(pendingProjections, windowID)
-		projectionLock.Unlock()
-		return map[string]interface{}{
-			"success": false,
-			"message": errMsg,
-		}
 	}
 
 	cmd := exec.Command(playerExe, args...)
@@ -11805,7 +11781,6 @@ func (a *App) startWindowsProjectionProcess(config ProjectionConfig, windowID, w
 			log.Printf("[Player] 投屏进程已正常退出 (exit: 0), windowID=%s", windowID)
 		}
 		// 无论退出码如何，都不向用户弹错误——可能是用户快速关闭、重复实例等
-		// 真正的 DLL 缺失已在上面的 requiredDLLs 检查中处理
 		return map[string]interface{}{
 			"success":  true,
 			"message":  "投屏已启动",
@@ -12161,15 +12136,11 @@ func findPlayerExecutable() (string, error) {
 				log.Printf("[Player] 使用已解压的投屏程序(兜底): %s", wvPath)
 				return wvPath, nil
 			}
-			// 其次找 player.exe，但必须同时有 lgplayer.dll（区分新版和旧版 legacy player）
+			// 其次找 player.exe
 			pPath := filepath.Join(dir, "player.exe")
-			dllPath := filepath.Join(dir, "lgplayer.dll")
 			if st, err := os.Stat(pPath); err == nil && st.Size() > 0 {
-				if _, dllErr := os.Stat(dllPath); dllErr == nil {
-					log.Printf("[Player] 使用已解压的投屏程序(兜底): %s", pPath)
-					return pPath, nil
-				}
-				log.Printf("[Player] 跳过旧版投屏程序(缺少lgplayer.dll): %s", pPath)
+				log.Printf("[Player] 使用已解压的投屏程序(兜底): %s", pPath)
+				return pPath, nil
 			}
 		}
 	}

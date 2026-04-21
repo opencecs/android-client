@@ -48,6 +48,7 @@ const zhCN = {
     aiAssistant: 'AI助理',
     rpaAgent: 'RPA Agent',
     customerService: '客服',
+    extensionService: '扩展服务',
     about: '关于',
     settings: '设置',
     update: '更新',
@@ -110,8 +111,7 @@ const zhCN = {
   },
   task: {
     taskQueue: '任务列表'
-  }
-},
+  },
   aiAssistant: {
     bold: '加粗',
     clearFormat: '清除格式',
@@ -159,7 +159,41 @@ const zhCN = {
     underline: '下划线',
     unorderedList: '无序列表',
   },
-
+  extension: {
+    title: '扩展服务',
+    deviceList: '设备列表',
+    deviceIP: '设备IP',
+    deviceModel: '设备型号',
+    firmwareVersion: '固件版本',
+    firmwareStatus: '固件状态',
+    firmwareMet: '满足要求',
+    firmwareNotMet: '需要升级',
+    modelNotSupported: '不支持',
+    sshInfo: 'SSH连接信息',
+    sshAddress: 'SSH地址',
+    sshPort: 'SSH端口',
+    sshAccount: 'SSH账号',
+    sshPassword: 'SSH密码',
+    showPassword: '显示',
+    hidePassword: '隐藏',
+    copyPassword: '复制',
+    passwordCopied: '密码已复制',
+    enterViaSSH: '通过SSH进入',
+    upgradeFirmware: '升级固件',
+    firmwareNotMetAlert: '固件版本不满足要求，请先升级固件',
+    currentVersion: '当前版本',
+    requiredVersion: '要求版本',
+    unknown: '未知',
+    noDeviceSelected: '请从左侧选择一个设备',
+    terminalTitle: 'SSH终端',
+    closeTerminal: '关闭终端',
+    connecting: '正在连接...',
+    connected: '已连接',
+    disconnected: '连接已断开',
+    connectFailed: '连接失败',
+    onlineDevices: '在线设备',
+  },
+}
 
 const enUS = {
   common: {
@@ -208,6 +242,7 @@ const enUS = {
     aiAssistant: 'AI Assistant',
     rpaAgent: 'RPA Agent',
     customerService: 'Customer Service',
+    extensionService: 'Extension Service',
     about: 'About',
     settings: 'Settings',
     update: 'Update',
@@ -270,8 +305,7 @@ const enUS = {
   },
   task: {
     taskQueue: 'Task Queue'
-  }
-},
+  },
   aiAssistant: {
     bold: 'Bold',
     clearFormat: 'Clear Format',
@@ -319,7 +353,41 @@ const enUS = {
     underline: 'Underline',
     unorderedList: 'Unordered List',
   },
-
+  extension: {
+    title: 'Extension Service',
+    deviceList: 'Device List',
+    deviceIP: 'Device IP',
+    deviceModel: 'Device Model',
+    firmwareVersion: 'Firmware Version',
+    firmwareStatus: 'Firmware Status',
+    firmwareMet: 'Met',
+    firmwareNotMet: 'Upgrade Required',
+    modelNotSupported: 'Not Supported',
+    sshInfo: 'SSH Connection Info',
+    sshAddress: 'SSH Address',
+    sshPort: 'SSH Port',
+    sshAccount: 'SSH Account',
+    sshPassword: 'SSH Password',
+    showPassword: 'Show',
+    hidePassword: 'Hide',
+    copyPassword: 'Copy',
+    passwordCopied: 'Password copied',
+    enterViaSSH: 'Enter via SSH',
+    upgradeFirmware: 'Upgrade Firmware',
+    firmwareNotMetAlert: 'Firmware version does not meet requirements. Please upgrade firmware first.',
+    currentVersion: 'Current Version',
+    requiredVersion: 'Required Version',
+    unknown: 'Unknown',
+    noDeviceSelected: 'Please select a device from the left panel',
+    terminalTitle: 'SSH Terminal',
+    closeTerminal: 'Close Terminal',
+    connecting: 'Connecting...',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    connectFailed: 'Connection failed',
+    onlineDevices: 'Online Devices',
+  },
+}
 
 // 从localStorage获取保存的语言设置，默认为中文
 const getDefaultLocale = () => {
@@ -331,7 +399,7 @@ const getDefaultLocale = () => {
   } catch (e) {
     console.warn('Cannot access localStorage:', e)
   }
-  
+
   return 'zh-CN'
 }
 
@@ -364,5 +432,3 @@ export const getCurrentLocale = () => {
 }
 
 export default i18n
-
-
