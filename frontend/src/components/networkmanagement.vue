@@ -126,11 +126,11 @@
                                         <el-tag v-else>{{ row.source }}</el-tag>
                                     </template>
                                 </el-table-column> -->
-                                <el-table-column :label="$t('common.operation')" width="240" align="center" fixed="right">
+                                <el-table-column :label="$t('common.operation')" width="300" align="center" fixed="right">
                                     <template #default="scope">
-                                        <el-button type="danger"
-                                            @click="deleteContainerRule(scope.row)">{{ $t('network.deleteGroupNode') }}</el-button>
-                                        <el-button type="primary" @click="testSpeed(scope.row)">{{ $t('network.speedTest') }}</el-button>
+                                        <!-- <el-button type="warning" size="small" @click="openEditNodeDialog(scope.row)">{{ $t('network.editNode') }}</el-button> -->
+                                        <el-button type="danger" size="small" @click="deleteContainerRule(scope.row)">{{ $t('network.deleteGroupNode') }}</el-button>
+                                        <el-button type="primary" size="small" @click="testSpeed(scope.row)">{{ $t('network.speedTest') }}</el-button>
                                     </template>
                                 </el-table-column>
                             </el-table>
@@ -2288,6 +2288,25 @@
                 </span>
             </template>
         </el-dialog>
+
+        <!-- 编辑节点对话框 -->
+        <el-dialog v-model="editNodeDialogVisible" :title="$t('network.editNode')" width="500px">
+            <el-form :model="editNodeForm" label-width="80px">
+                <el-form-item :label="$t('network.alias')">
+                    <el-input v-model="editNodeForm.remarks" />
+                </el-form-item>
+                <el-form-item :label="$t('network.address')">
+                    <el-input v-model="editNodeForm.server" />
+                </el-form-item>
+                <el-form-item :label="$t('network.port')">
+                    <el-input v-model="editNodeForm.serverPort" />
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="editNodeDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+                <el-button type="primary" @click="submitEditNode" :loading="editNodeLoading">{{ $t('common.confirm') }}</el-button>
+            </template>
+        </el-dialog>
     </div>
 </template>
 
@@ -2909,6 +2928,20 @@ const handleEditGroupAlias = (groupId) => {
 
 const handleUpdateGroup = async (groupId) => {
     try {
+        await ElMessageBox.confirm(
+            '更新分组会重新从订阅源拉取节点，您手动编辑的节点修改（别名、地址、端口等）将被覆盖，可能导致网络失效。确定要继续吗？',
+            '更新分组确认',
+            {
+                confirmButtonText: '确定更新',
+                cancelButtonText: '取消',
+                type: 'warning'
+            }
+        )
+    } catch {
+        return
+    }
+
+    try {
         const response = await fetch(
             `http://${getDeviceAddr(selectedDeviceIP.value)}/mytVpc/group/update`,
             {
@@ -3044,6 +3077,75 @@ const handleDeleteGroup = async (groupId = null) => {
             console.error(`${t('network.deleteGroup')}失败:`, error)
             ElMessage.error(`${t('network.deleteGroup')}失败，请检查网络连接`)
         }
+    }
+}
+
+// 编辑节点
+const editNodeDialogVisible = ref(false)
+const editNodeLoading = ref(false)
+const editNodeForm = ref({
+    vpcID: '',
+    remarks: '',
+    server: '',
+    serverPort: '',
+    profile: null
+})
+
+const openEditNodeDialog = (row) => {
+    const profile = JSON.parse(row.profile)
+    editNodeForm.value = {
+        vpcID: row.id,
+        remarks: row.remarks || '',
+        server: profile.server || '',
+        serverPort: profile.serverPort || '',
+        profile: profile
+    }
+    editNodeDialogVisible.value = true
+}
+
+const submitEditNode = async () => {
+    editNodeLoading.value = true
+    try {
+        const updatedProfile = { ...editNodeForm.value.profile }
+        updatedProfile.server = editNodeForm.value.server
+        updatedProfile.serverPort = editNodeForm.value.serverPort
+        updatedProfile.remarks = editNodeForm.value.remarks
+
+        const body = {
+            vpcID: editNodeForm.value.vpcID,
+            remarks: editNodeForm.value.remarks,
+            profile: updatedProfile
+        }
+
+        const response = await fetch(
+            `http://${getDeviceAddr(selectedDeviceIP.value)}/mytVpc`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...getAuthHeaders(selectedDeviceIP.value)
+                },
+                body: JSON.stringify(body)
+            }
+        )
+
+        if (response.ok) {
+            const data = await response.json()
+            if (data.code === 0) {
+                ElMessage.success('编辑成功')
+                editNodeDialogVisible.value = false
+                fetchGroupList(false)
+            } else {
+                ElMessage.error(data.message || '编辑失败')
+            }
+        } else {
+            ElMessage.error('接口请求失败')
+        }
+    } catch (error) {
+        console.error('编辑节点失败:', error)
+        ElMessage.error('编辑失败，请检查网络连接')
+    } finally {
+        editNodeLoading.value = false
     }
 }
 
@@ -4215,8 +4317,6 @@ const confirmSetVpc = async () => {
         return
     }
 
-    let finalVpcId = vpcSelectedNodeId.value
-
     if (vpcSelectMode.value === 'random') {
         if (!vpcSelectedGroupId.value) {
             ElMessage.warning('请选择分组')
@@ -4230,14 +4330,62 @@ const confirmSetVpc = async () => {
         }
 
         const allNodes = selectedGroup.vpcs.list
-        const randomIndex = Math.floor(Math.random() * allNodes.length)
-        finalVpcId = allNodes[randomIndex].id
-        console.log('从分组"', selectedGroup.alias, '"随机选择的节点ID:', finalVpcId)
-    } else {
-        if (!vpcSelectedNodeId.value) {
-            ElMessage.warning('请选择节点')
-            return
+        // 批量分配时，每台云机随机分配不同的节点
+        vpcDialogLoading.value = true
+        let successCount = 0
+        let failCount = 0
+        try {
+            for (const container of vpcSelectedContainers.value) {
+                const randomIndex = Math.floor(Math.random() * allNodes.length)
+                const randomVpcId = allNodes[randomIndex].id
+
+                const response = await fetch(
+                    `http://${getDeviceAddr(selectedDeviceIP.value)}/mytVpc/addRule/batch`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...getAuthHeaders(selectedDeviceIP.value)
+                        },
+                        body: JSON.stringify({
+                            names: [container.name],
+                            vpcID: randomVpcId,
+                        })
+                    }
+                )
+                if (response.ok) {
+                    const data = await response.json()
+                    if (data.code === 0) {
+                        successCount++
+                    } else {
+                        failCount++
+                    }
+                } else {
+                    failCount++
+                }
+            }
+
+            if (failCount === 0) {
+                ElMessage.success(`设置VPC节点成功，共 ${successCount} 台`)
+            } else {
+                ElMessage.warning(`设置完成，成功 ${successCount} 台，失败 ${failCount} 台`)
+            }
+            vpcDialogVisible.value = false
+            fetchContainerRule()
+        } catch (error) {
+            console.error('设置VPC节点失败:', error)
+            ElMessage.error('设置VPC节点失败，请检查网络连接')
+        } finally {
+            vpcDialogLoading.value = false
         }
+        return
+    }
+
+    // 指定节点模式
+    let finalVpcId = vpcSelectedNodeId.value
+    if (!vpcSelectedNodeId.value) {
+        ElMessage.warning('请选择节点')
+        return
     }
 
     vpcDialogLoading.value = true

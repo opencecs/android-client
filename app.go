@@ -6479,6 +6479,20 @@ func (a *App) OpenBackupMachineDir() map[string]interface{} {
 	}
 }
 
+// OpenInBrowser 使用系统默认浏览器打开URL
+func (a *App) OpenInBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
+}
+
 // GetModelConfig 获取机型配置信息
 func (a *App) GetModelConfig(modelName string) (map[string]interface{}, error) {
 	// 获取本地模板信息

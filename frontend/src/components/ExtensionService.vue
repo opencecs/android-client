@@ -88,7 +88,7 @@
             <p>{{ t('extension.requiredVersion') }}: {{ getFirmwareCheck(selectedDevice).latestVersion }}</p>
           </div>
           <div style="margin-top: 12px;">
-            <el-button type="primary" size="small" @click="$emit('upgrade-device', selectedDevice)">
+            <el-button type="primary" size="small" @click="openUrl('https://doc.opencecs.com/download')">
               {{ t('extension.upgradeFirmware') }}
             </el-button>
           </div>
@@ -148,28 +148,35 @@
           <el-divider style="margin: 12px 0;" />
 
           <!-- 公网穿透 -->
-          <div class="service-item">
+          <!-- <div class="service-item">
             <div class="service-info">
               <div class="service-name">{{ t('extension.tunnel') }}</div>
               <div class="service-desc">{{ t('extension.tunnelDesc') }}</div>
             </div>
             <div class="service-actions">
-              <el-button type="primary" size="small" disabled>
-                {{ t('extension.install') }}（{{ t('extension.comingSoon') }}）
+              <el-button type="primary" size="small" :loading="installingTunnel" @click="installTunnel">
+                {{ t('extension.install') }}
               </el-button>
-              <el-button type="danger" size="small" disabled>{{ t('extension.uninstall') }}</el-button>
-              <el-button type="info" size="small" disabled>{{ t('extension.usageGuide') }}</el-button>
+              <el-button type="danger" size="small" :loading="uninstallingTunnel" @click="uninstallTunnel">
+                {{ t('extension.uninstall') }}
+              </el-button>
+              <el-button type="info" size="small" @click="showUsageGuide('tunnel')">
+                {{ t('extension.usageGuide') }}
+              </el-button>
             </div>
-          </div>
+          </div> -->
 
           <!-- 操作状态 -->
           <div v-if="operationStatus" style="margin-top: 12px;">
             <el-alert :type="operationStatus.type" :closable="false" show-icon>
               <template #title>{{ operationStatus.message }}</template>
             </el-alert>
-            <div v-if="operationStatus.url" style="margin-top: 8px;">
-              <el-button type="primary" size="small" @click="openUrl(operationStatus.url)">
-                {{ t('extension.openPanel') }}
+            <div v-if="operationStatus.webAddress || operationStatus.url" style="margin-top: 8px; display: flex; gap: 8px;">
+              <el-button v-if="operationStatus.webAddress" type="primary" size="small" @click="openUrl(operationStatus.webAddress)">
+                Web管理界面
+              </el-button>
+              <el-button v-if="operationStatus.remoteAddress" type="success" size="small" @click="copyText(operationStatus.remoteAddress)">
+                复制SSH地址
               </el-button>
             </div>
           </div>
@@ -212,6 +219,56 @@
           <p><strong>4.</strong> {{ t('extension.guideSSH') }}</p>
         </div>
       </div>
+
+      <div v-if="usageGuideType === 'tunnel'" class="usage-guide">
+        <div style="line-height: 2; font-size: 14px;">
+          <p><strong>什么是公网穿透？</strong></p>
+          <p style="color: #909399;">公网穿透可以将内网设备的服务暴露到公网，让你从任何地方远程访问。</p>
+          <el-divider />
+          <p><strong>使用步骤：</strong></p>
+          <p><strong>1.</strong> 准备一台有公网 IP 的服务器，运行 frps（服务端）</p>
+          <p><strong>2.</strong> 在左侧选择设备，点击"安装"，填写服务器地址和端口</p>
+          <p><strong>3.</strong> 安装成功后，设备会自动连接到公网服务器</p>
+          <p><strong>4.</strong> 通过公网服务器的端口即可远程访问该设备</p>
+          <p><strong>5.</strong> 安装成功后可点击“Web管理界面”按钮，可视化管理和配置代理规则</p>
+          <el-divider />
+          <p><strong>服务器地址：</strong>填写运行 frps 的公网服务器 IP</p>
+          <p><strong>服务器端口：</strong>frps 的监听端口（默认 7000）</p>
+          <p><strong>Token：</strong>如果服务端配置了认证，需填写相同的 Token</p>
+          <el-divider />
+          <p><strong>示例：</strong></p>
+          <p>服务器地址：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">43.136.42.137</code></p>
+          <p>服务器端口：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">7000</code></p>
+          <p style="margin-top: 8px;cursor: pointer;color: #409EFF;" @click="openUrl('https://gofrp.org/zh-cn/docs/')"> 查看 frp 官方文档
+            <!-- <el-link type="primary" href="https://gofrp.org/zh-cn/docs/" target="_blank">
+              查看 frp 官方文档
+            </el-link> -->
+          </p>
+        </div>
+      </div>
+    </el-dialog>
+
+    <!-- 公网穿透安装配置对话框 -->
+    <el-dialog
+      v-model="tunnelConfigDialogVisible"
+      title="安装公网穿透"
+      width="450px"
+    >
+      <el-form label-position="top" size="default">
+        <el-form-item label="服务器地址">
+          <el-input v-model="tunnelServerAddr" placeholder="请输入frps服务器地址" />
+        </el-form-item>
+        <el-form-item label="服务器端口">
+          <el-input-number v-model="tunnelServerPort" :min="1" :max="65535" style="width: 100%;" />
+        </el-form-item>
+        <el-form-item label="Token">
+          <el-input v-model="tunnelToken" placeholder="可选，frps认证Token" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="tunnelConfigDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="installingTunnel" @click="doInstallTunnel">安装</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -219,7 +276,7 @@
 <script setup>
 import { ref, computed, getCurrentInstance } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { InstallMytPanel, UninstallMytPanel } from '../../bindings/edgeclient/app'
+import { InstallMytPanel, UninstallMytPanel, InstallTunnel, UninstallTunnel, OpenInBrowser } from '../../bindings/edgeclient/app'
 
 const { proxy } = getCurrentInstance()
 
@@ -265,11 +322,14 @@ const selectedDevice = ref(null)
 const showPassword = ref(false)
 const installingMytPanel = ref(false)
 const uninstallingMytPanel = ref(false)
+const installingTunnel = ref(false)
+const uninstallingTunnel = ref(false)
 const operationStatus = ref(null)
 const usageDialogVisible = ref(false)
 const usageGuideType = ref('')
 const usageDialogTitle = computed(() => {
   if (usageGuideType.value === 'mytPanel') return t('extension.mytPanel') + ' - ' + t('extension.usageGuide')
+  if (usageGuideType.value === 'tunnel') return t('extension.tunnel') + ' - ' + t('extension.usageGuide')
   return t('extension.usageGuide')
 })
 
@@ -363,9 +423,9 @@ const copyText = (text) => {
   })
 }
 
-// 打开URL
+// 打开URL（使用系统默认浏览器）
 const openUrl = (url) => {
-  window.open(url, '_blank')
+  OpenInBrowser(url)
 }
 
 // 显示使用说明
@@ -431,6 +491,78 @@ const uninstallMytPanel = async () => {
     ElMessage.error(t('extension.uninstallFailed') + `: ${e.message || e}`)
   } finally {
     uninstallingMytPanel.value = false
+  }
+}
+
+// 安装公网穿透 - 需要填写服务器配置
+const tunnelServerAddr = ref('')
+const tunnelServerPort = ref(7000)
+const tunnelToken = ref('')
+const tunnelConfigDialogVisible = ref(false)
+
+const installTunnel = () => {
+  if (!selectedDevice.value) return
+  tunnelConfigDialogVisible.value = true
+}
+
+const doInstallTunnel = async () => {
+  if (!tunnelServerAddr.value) {
+    ElMessage.warning('请填写服务器地址')
+    return
+  }
+  tunnelConfigDialogVisible.value = false
+  installingTunnel.value = true
+  operationStatus.value = null
+  try {
+    const ip = extractPureIP(selectedDevice.value.ip)
+    const result = await InstallTunnel(ip, tunnelServerAddr.value, tunnelServerPort.value, tunnelToken.value)
+    if (result.success) {
+      const msg = result.message || t('extension.installSuccess')
+      operationStatus.value = { type: 'success', message: msg, url: result.webAddress || result.remoteAddress || '', webAddress: result.webAddress || '', remoteAddress: result.remoteAddress || '' }
+      ElMessage.success(msg)
+    } else {
+      operationStatus.value = { type: 'error', message: result.message || t('extension.installFailed') }
+      ElMessage.error(result.message || t('extension.installFailed'))
+    }
+  } catch (e) {
+    console.error('[扩展服务] 安装公网穿透失败:', e)
+    operationStatus.value = { type: 'error', message: t('extension.installFailed') + `: ${e.message || e}` }
+    ElMessage.error(t('extension.installFailed') + `: ${e.message || e}`)
+  } finally {
+    installingTunnel.value = false
+  }
+}
+
+// 卸载公网穿透
+const uninstallTunnel = async () => {
+  if (!selectedDevice.value) return
+  try {
+    await ElMessageBox.confirm(t('extension.uninstallConfirm'), t('extension.uninstall'), {
+      confirmButtonText: t('extension.confirmUninstall'),
+      cancelButtonText: t('extension.cancelUninstall'),
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  uninstallingTunnel.value = true
+  operationStatus.value = null
+  try {
+    const ip = extractPureIP(selectedDevice.value.ip)
+    const result = await UninstallTunnel(ip)
+    if (result.success) {
+      operationStatus.value = { type: 'success', message: t('extension.uninstallSuccess') }
+      ElMessage.success(t('extension.uninstallSuccess'))
+    } else {
+      operationStatus.value = { type: 'error', message: result.message || t('extension.uninstallFailed') }
+      ElMessage.error(result.message || t('extension.uninstallFailed'))
+    }
+  } catch (e) {
+    console.error('[扩展服务] 卸载公网穿透失败:', e)
+    operationStatus.value = { type: 'error', message: t('extension.uninstallFailed') + `: ${e.message || e}` }
+    ElMessage.error(t('extension.uninstallFailed') + `: ${e.message || e}`)
+  } finally {
+    uninstallingTunnel.value = false
   }
 }
 </script>
