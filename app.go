@@ -6632,7 +6632,8 @@ func (a *App) UpgradeDeviceWithNewAPI(deviceIP interface{}, latestVersion interf
 	zipFilePath := filepath.Join(updateSDKDir, "myt-sdk.zip")
 
 	// 发起下载请求
-	dlResp, err := client.Get(downloadURL)
+	dlClient := &http.Client{Timeout: 10 * time.Minute}
+		dlResp, err := dlClient.Get(downloadURL)
 	if err != nil {
 		log.Printf("下载SDK包失败: %v", err)
 		return map[string]interface{}{

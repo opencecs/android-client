@@ -148,7 +148,7 @@
           <el-divider style="margin: 12px 0;" />
 
           <!-- 公网穿透 -->
-          <!-- <div class="service-item">
+          <div class="service-item">
             <div class="service-info">
               <div class="service-name">{{ t('extension.tunnel') }}</div>
               <div class="service-desc">{{ t('extension.tunnelDesc') }}</div>
@@ -164,7 +164,7 @@
                 {{ t('extension.usageGuide') }}
               </el-button>
             </div>
-          </div> -->
+          </div>
 
           <!-- 操作状态 -->
           <div v-if="operationStatus" style="margin-top: 12px;">
@@ -174,6 +174,9 @@
             <div v-if="operationStatus.webAddress || operationStatus.url" style="margin-top: 8px; display: flex; gap: 8px;">
               <el-button v-if="operationStatus.webAddress" type="primary" size="small" @click="openUrl(operationStatus.webAddress)">
                 Web管理界面
+              </el-button>
+              <el-button v-if="operationStatus.url && !operationStatus.webAddress" type="primary" size="small" @click="openUrl(operationStatus.url)">
+                {{ t('extension.openPanel') }}
               </el-button>
               <el-button v-if="operationStatus.remoteAddress" type="success" size="small" @click="copyText(operationStatus.remoteAddress)">
                 复制SSH地址
@@ -232,6 +235,10 @@
           <p><strong>4.</strong> 通过公网服务器的端口即可远程访问该设备</p>
           <p><strong>5.</strong> 安装成功后可点击“Web管理界面”按钮，可视化管理和配置代理规则</p>
           <el-divider />
+          <p><strong>Web管理界面登录：</strong></p>
+          <p>账号：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">admin</code></p>
+          <p>密码：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">admin</code></p>
+          <el-divider />
           <p><strong>服务器地址：</strong>填写运行 frps 的公网服务器 IP</p>
           <p><strong>服务器端口：</strong>frps 的监听端口（默认 7000）</p>
           <p><strong>Token：</strong>如果服务端配置了认证，需填写相同的 Token</p>
@@ -256,14 +263,14 @@
     >
       <el-form label-position="top" size="default">
         <el-form-item label="服务器地址">
-          <el-input v-model="tunnelServerAddr" placeholder="请输入frps服务器地址" />
+          <el-input v-model="tunnelServerAddr" disabled />
         </el-form-item>
         <el-form-item label="服务器端口">
           <el-input-number v-model="tunnelServerPort" :min="1" :max="65535" style="width: 100%;" />
         </el-form-item>
-        <el-form-item label="Token">
+        <!-- <el-form-item label="Token">
           <el-input v-model="tunnelToken" placeholder="可选，frps认证Token" />
-        </el-form-item>
+        </el-form-item> -->
       </el-form>
       <template #footer>
         <el-button @click="tunnelConfigDialogVisible = false">取消</el-button>
@@ -495,7 +502,7 @@ const uninstallMytPanel = async () => {
 }
 
 // 安装公网穿透 - 需要填写服务器配置
-const tunnelServerAddr = ref('')
+const tunnelServerAddr = ref('43.136.42.137')
 const tunnelServerPort = ref(7000)
 const tunnelToken = ref('')
 const tunnelConfigDialogVisible = ref(false)

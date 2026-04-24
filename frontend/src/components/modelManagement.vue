@@ -53,6 +53,9 @@
             <el-button v-if="activeTab === 'local'" type="default" size="small" @click="handleRefreshLocalModels">
               刷新
             </el-button>
+            <el-button v-if="activeTab === 'online'" type="default" size="small" :loading="fetchingModels" @click="fetchPhoneModels">
+              刷新
+            </el-button>
             <el-button type="primary" size="small" @click="handleOpenDirectory">
               {{ $t(activeTab === 'local' ? 'model.openLocalDir' : 'model.openDownloadDir') }}
             </el-button>

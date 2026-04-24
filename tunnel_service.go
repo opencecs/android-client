@@ -23,14 +23,19 @@ func (a *App) InstallTunnel(deviceIP string, serverAddr string, serverPort int, 
 
 	ip := extractPureIP(deviceIP)
 
-	// 1. 从本地zip包解压frpc到临时目录
+	// 1. 从远程下载frpc zip包到临时目录
 	localDir := filepath.Join(os.TempDir(), "frpc-install")
 	os.RemoveAll(localDir)
 	os.MkdirAll(localDir, 0755)
 	defer os.RemoveAll(localDir)
 
-	localZipPath := `C:\Users\Administrator\Desktop\frp\frp\release\frpc-linux-arm64-deploy.zip`
-	log.Printf("[公网穿透] 从本地zip解压frpc: %s", localZipPath)
+	frpcDownloadURL := "http://47.107.33.172:10011/api/v1/moyu/download/frpc"
+	localZipPath := filepath.Join(localDir, "frpc.zip")
+	log.Printf("[公网穿透] 从远程下载frpc: %s", frpcDownloadURL)
+
+	if err := downloadFile(frpcDownloadURL, localZipPath); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("下载frpc失败: %v", err)}
+	}
 
 	if err := extractFRPCFromZip(localZipPath, localDir); err != nil {
 		return map[string]interface{}{"success": false, "message": fmt.Sprintf("解压frpc失败: %v", err)}
@@ -100,6 +105,21 @@ func (a *App) InstallTunnel(deviceIP string, serverAddr string, serverPort int, 
 	time.Sleep(3 * time.Second)
 	frpcLog, _ := runSSHCmd(sshClient, "tail -20 /home/user/logs/frpc.log 2>/dev/null || echo no-log")
 		log.Printf("[公网穿透] frpc日志:\n%s", frpcLog)
+
+	// 检查frpc进程是否真正运行（重试3次）
+	frpcRunning := false
+	for i := 0; i < 3; i++ {
+		time.Sleep(2 * time.Second)
+		psOutput, _ := runSSHCmd(sshClient, "ps aux | grep /home/user/frpc | grep -v grep")
+		if strings.TrimSpace(psOutput) != "" {
+			frpcRunning = true
+			break
+		}
+	}
+	if !frpcRunning {
+		log.Printf("[公网穿透] frpc未运行，可能架构不匹配")
+		return map[string]interface{}{"success": false, "message": "frpc启动失败，可能架构不匹配，请确认frpc为ARM64版本"}
+	}
 	// 查询frps获取实际分配的远程端口
 	remoteAddress := ""
 	webAddress := ""
@@ -233,6 +253,10 @@ func generateFrpcConfig(serverAddr string, serverPort int, token string, deviceI
 	sb.WriteString("port = 7400\n")
 	sb.WriteString("user = \"admin\"\n")
 	sb.WriteString("password = \"admin\"\n")
+
+	// 持久化存储，保持代理状态（避免重启后frps重新分配端口）
+	sb.WriteString("\n[store]\n")
+	sb.WriteString("path = \"./frpc_store.json\"\n")
 
 	// SSH代理规则：将设备22端口映射到frps服务器（端口由服务端自动分配）
 	sb.WriteString(fmt.Sprintf("\n[[proxies]]\n"))

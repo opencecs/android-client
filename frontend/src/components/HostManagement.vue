@@ -2064,7 +2064,10 @@ const startBatchUpgrade = async () => {
       if (props.devicesStatusCache.get(device.id) === 'online' && device.version === 'v3') {
         // 检查是否需要升级
         const versionInfo = props.deviceVersionInfo.get(device.id)
-        return versionInfo && versionInfo.currentVersion < versionInfo.latestVersion
+        if (!versionInfo) return false
+        const current = parseFloat(versionInfo.currentVersion)
+        const latest = parseFloat(versionInfo.latestVersion)
+        return !isNaN(current) && !isNaN(latest) && current < latest
       }
       return false
     })

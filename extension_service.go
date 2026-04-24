@@ -242,7 +242,8 @@ func (a *App) UninstallMytPanel(deviceIP string) map[string]interface{} {
 
 // downloadFile 下载文件到本地
 func downloadFile(url, filePath string) error {
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(url)
 	if err != nil {
 		return fmt.Errorf("下载失败: %w", err)
 	}
