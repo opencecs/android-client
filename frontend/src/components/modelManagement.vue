@@ -89,6 +89,7 @@
         <div v-if="activeTab !== 'help'" class="model-search-container" style="display: flex; gap: 15px; margin-bottom: 15px; align-items: flex-start;">
           <el-radio-group v-if="activeTab === 'online'" v-model="selectedAndroidVersion" @change="fetchPhoneModels" size="medium">
             <el-radio-button label="all">全部安卓版本</el-radio-button>
+            <el-radio-button label="10">Android 10</el-radio-button>
             <el-radio-button label="11">Android 11</el-radio-button>
             <el-radio-button label="13">Android 13</el-radio-button>
             <el-radio-button label="14">Android 14</el-radio-button>

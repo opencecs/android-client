@@ -1648,6 +1648,7 @@ const messages = {
       setS5Agent: '设置S5代理',
       closeS5Agent: '关闭安卓内SOCKS5代理',
       fileUpload: '上传文件',
+      apkUpload: '上传APKS',
       oneKeyNewDevice: '一键新机',
       switchModel: '切换机型',
       resetContainer: '重置容器'
@@ -3328,6 +3329,7 @@ const messages = {
       setS5Agent: 'Set S5 Proxy',
       closeS5Agent: 'Close Android SOCKS5 Proxy',
       fileUpload: 'Upload File',
+      apkUpload: 'Upload APKS',
       oneKeyNewDevice: 'One-Click New Device',
       switchModel: 'Switch Model',
       resetContainer: 'Reset Container'

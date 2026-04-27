@@ -2178,7 +2178,8 @@ func (a *App) UploadFileToCloudMachine(deviceIP string, version string, containe
 	uploadHost, uploadPort = a.resolveOpenCecsAddr(uploadHost, uploadPort)
 
 	// 上传文件到云机
-	if err := uploadFileToContainer(uploadHost, uploadPort, filePath); err != nil {
+	uploadResult, err := uploadFileToContainer(uploadHost, uploadPort, filePath)
+	if err != nil {
 		log.Printf("上传文件失败: %v", err)
 		return map[string]interface{}{
 			"success": false,
@@ -2187,12 +2188,34 @@ func (a *App) UploadFileToCloudMachine(deviceIP string, version string, containe
 	}
 
 	log.Printf("文件上传成功: %s -> http://%s:%d/upload", filePath, uploadHost, uploadPort)
-	return map[string]interface{}{
+
+	remotePath := ""
+	if uploadResult != nil {
+		if rp, ok := uploadResult["path"].(string); ok && rp != "" {
+			remotePath = rp
+		} else if rp, ok := uploadResult["filePath"].(string); ok && rp != "" {
+			remotePath = rp
+		} else if rp, ok := uploadResult["data"].(string); ok && rp != "" {
+			remotePath = rp
+		}
+	}
+	// 如果接口未返回路径，使用默认上传路径
+	if remotePath == "" {
+		remotePath = "/sdcard/upload/" + filepath.Base(filePath)
+	}
+
+	result := map[string]interface{}{
 		"success":   true,
 		"message":   "文件上传成功",
 		"filePath":  filePath,
 		"uploadUrl": fmt.Sprintf("http://%s:%d/upload", uploadHost, uploadPort),
 	}
+	if remotePath != "" {
+		result["remotePath"] = remotePath
+		result["message"] = fmt.Sprintf("文件上传成功，路径: %s", remotePath)
+	}
+
+	return result
 }
 
 // UpgradeSDK 升级SDK
@@ -2673,7 +2696,7 @@ func (a *App) InstallAPK(deviceIP string, version string, containerID string, fi
 	}
 
 	// 上传文件到云机
-	if err := uploadFileToContainer(uploadHost, uploadPort, filePath); err != nil {
+	if _, err := uploadFileToContainer(uploadHost, uploadPort, filePath); err != nil {
 		log.Printf("上传文件失败: %v", err)
 		return map[string]interface{}{
 			"success": false,
@@ -2839,6 +2862,113 @@ type APKInstallResult struct {
 }
 
 // BatchInstallAPK 批量安装APK（并发执行）
+
+// InstallAPKs 上传包含多个APK/XAPK文件的ZIP包到设备安装
+func (a *App) InstallAPKs(deviceIP string, containerID string, filePath string, password string) map[string]interface{} {
+	log.Printf("[InstallAPKs] 开始安装: deviceIP=%s, containerID=%s, filePath=%s", deviceIP, containerID, filePath)
+
+	if deviceIP == "" || filePath == "" {
+		return map[string]interface{}{"success": false, "message": "设备IP和文件路径不能为空"}
+	}
+
+	// 检查文件存在
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("文件不存在: %s", filePath)}
+	}
+	log.Printf("[InstallAPKs] 文件大小: %d bytes", fileInfo.Size())
+
+	// 获取容器信息以找到端口映射
+	container, err := a.getContainerByID(deviceIP, containerID, password)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("获取容器信息失败: %v", err)}
+	}
+
+	uploadHost := deviceIP
+	uploadPort := 0
+	if container.NetworkName == "myt" || container.NetworkMode == "myt" {
+		if container.IP != "" {
+			uploadHost = container.IP
+			uploadPort = 9082
+		}
+	}
+	if uploadPort == 0 {
+		for _, p := range container.Ports {
+			if p.PrivatePort == 9082 {
+				uploadPort = p.PublicPort
+				break
+			}
+		}
+	}
+	if uploadPort == 0 {
+		return map[string]interface{}{"success": false, "message": "未找到容器9082端口映射"}
+	}
+
+	// 上传ZIP到 /installapks 接口
+	installURL := fmt.Sprintf("http://%s:%d/installapks", uploadHost, uploadPort)
+	log.Printf("[InstallAPKs] 上传到: %s", installURL)
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("打开文件失败: %v", err)}
+	}
+	defer file.Close()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("创建表单失败: %v", err)}
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("读取文件失败: %v", err)}
+	}
+	writer.Close()
+
+	req, err := http.NewRequest("POST", installURL, body)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("创建请求失败: %v", err)}
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if password != "" {
+		req.SetBasicAuth("admin", password)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Do(req)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("上传失败: %v", err)}
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Printf("[InstallAPKs] 响应状态: %d, 内容: %s", resp.StatusCode, string(respBody))
+
+	if resp.StatusCode == http.StatusOK {
+		// 尝试解析响应，获取安装结果
+		var installResult map[string]interface{}
+		if json.Unmarshal(respBody, &installResult) == nil {
+			result := map[string]interface{}{
+				"success": true,
+				"message": "APK安装包上传成功",
+				"installResult": installResult,
+			}
+			// 尝试从响应中提取安装信息
+			if msg, ok := installResult["message"].(string); ok && msg != "" {
+				result["message"] = msg
+			}
+			if data, ok := installResult["data"]; ok {
+				result["installData"] = data
+			}
+			return result
+		}
+		return map[string]interface{}{"success": true, "message": "APK安装包上传成功", "installResult": string(respBody)}
+	}
+
+	return map[string]interface{}{"success": false, "message": fmt.Sprintf("安装失败(HTTP %d): %s", resp.StatusCode, string(respBody))}
+}
+
+// BatchInstallAPK 批量安装APK（并发执行）
 func (a *App) BatchInstallAPK(targets []APKInstallTarget, filePath string, options APKInstallOptions) map[string]interface{} {
 	log.Printf("[BatchInstallAPK] 收到批量安装请求，目标数量: %d, 文件: %s", len(targets), filePath)
 	
@@ -2967,11 +3097,11 @@ func (a *App) BatchInstallAPK(targets []APKInstallTarget, filePath string, optio
 }
 
 // uploadFileToContainer 上传文件到容器
-func uploadFileToContainer(ip string, port int, filePath string) error {
+func uploadFileToContainer(ip string, port int, filePath string) (map[string]interface{}, error) {
 	// 打开文件
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer file.Close()
 
@@ -2980,12 +3110,12 @@ func uploadFileToContainer(ip string, port int, filePath string) error {
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// 拷贝文件内容
 	if _, err = io.Copy(part, file); err != nil {
-		return err
+		return nil, err
 	}
 	writer.Close()
 
@@ -2993,7 +3123,7 @@ func uploadFileToContainer(ip string, port int, filePath string) error {
 	url := fmt.Sprintf("http://%s:%d/upload", ip, port)
 	req, err := http.NewRequest("POST", url, body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// 设置请求头
@@ -3003,17 +3133,24 @@ func uploadFileToContainer(ip string, port int, filePath string) error {
 	client := &http.Client{Timeout: 7200 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
+
 	// 检查响应
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("服务器错误: %s", string(respBody))
+		return nil, fmt.Errorf("服务器错误: %s", string(respBody))
 	}
 
-	return nil
+	// 尝试解析响应JSON获取上传路径
+	var result map[string]interface{}
+	if json.Unmarshal(respBody, &result) == nil {
+		return result, nil
+	}
+
+	return map[string]interface{}{"message": string(respBody)}, nil
 }
 
 // OpenImageCacheDirectory 打开镜像缓存目录

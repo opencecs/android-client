@@ -1,7 +1,9 @@
 package main
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -196,6 +198,7 @@ func (a *App) UninstallTunnel(deviceIP string) map[string]interface{} {
 			cmd  string
 		}{
 			{"停止服务", fmt.Sprintf("echo '%s' | sudo -S rc-service frpc stop 2>/dev/null || true", extensionSSHPassword)},
+			{"强杀进程", fmt.Sprintf("echo '%s' | sudo -S killall frpc 2>/dev/null || true", extensionSSHPassword)},
 			{"移除开机启动", fmt.Sprintf("echo '%s' | sudo -S rc-update del frpc default 2>/dev/null || true", extensionSSHPassword)},
 			{"删除服务文件", fmt.Sprintf("echo '%s' | sudo -S rm -f /etc/init.d/frpc", extensionSSHPassword)},
 		}
@@ -211,6 +214,7 @@ func (a *App) UninstallTunnel(deviceIP string) map[string]interface{} {
 			cmd  string
 		}{
 			{"停止服务", fmt.Sprintf("echo '%s' | sudo -S systemctl stop frpc 2>/dev/null || true", extensionSSHPassword)},
+			{"强杀进程", fmt.Sprintf("echo '%s' | sudo -S killall frpc 2>/dev/null || true", extensionSSHPassword)},
 			{"禁用服务", fmt.Sprintf("echo '%s' | sudo -S systemctl disable frpc 2>/dev/null || true", extensionSSHPassword)},
 			{"删除服务文件", fmt.Sprintf("echo '%s' | sudo -S rm -f /etc/systemd/system/frpc.service", extensionSSHPassword)},
 			{"重载systemd", fmt.Sprintf("echo '%s' | sudo -S systemctl daemon-reload", extensionSSHPassword)},
@@ -224,7 +228,7 @@ func (a *App) UninstallTunnel(deviceIP string) map[string]interface{} {
 	}
 
 	// 清理文件
-	runSSHCmd(sshClient, fmt.Sprintf("echo '%s' | sudo -S rm -f /home/user/frpc /home/user/frpc.toml", extensionSSHPassword))
+	runSSHCmd(sshClient, fmt.Sprintf("echo '%s' | sudo -S rm -f /home/user/frpc /home/user/frpc.toml /home/user/frpc_store.json", extensionSSHPassword))
 	runSSHCmd(sshClient, fmt.Sprintf("echo '%s' | sudo -S rm -rf /home/user/deploy-frpc", extensionSSHPassword))
 
 	log.Printf("[公网穿透] 卸载成功")
@@ -367,7 +371,11 @@ func extractFRPCFromZip(zipPath, targetDir string) error {
 
 	for _, f := range r.File {
 		// 只解压frpc相关文件
-		if f.Name != "frpc" && f.Name != "frpc.toml" {
+		baseName := filepath.Base(f.Name)
+		if baseName != "frpc" && baseName != "frpc.toml" {
+			continue
+		}
+		if f.FileInfo().IsDir() {
 			continue
 		}
 
@@ -376,7 +384,7 @@ func extractFRPCFromZip(zipPath, targetDir string) error {
 			return fmt.Errorf("打开zip内文件 %s 失败: %w", f.Name, err)
 		}
 
-		dstPath := filepath.Join(targetDir, f.Name)
+		dstPath := filepath.Join(targetDir, baseName)
 		dst, err := os.Create(dstPath)
 		if err != nil {
 			rc.Close()
@@ -391,10 +399,10 @@ func extractFRPCFromZip(zipPath, targetDir string) error {
 		dst.Close()
 		rc.Close()
 
-		if f.Name == "frpc" {
+		if baseName == "frpc" {
 			os.Chmod(dstPath, 0755)
 		}
-		log.Printf("[公网穿透] 解压文件: %s", f.Name)
+		log.Printf("[公网穿透] 解压文件: %s -> %s", f.Name, baseName)
 	}
 	return nil
 }
@@ -403,3 +411,420 @@ func extractFRPCFromZip(zipPath, targetDir string) error {
 func sftpNewClient(sshClient *ssh.Client) (*sftp.Client, error) {
 	return sftp.NewClient(sshClient)
 }
+
+// InstallTunnelServer 安装公网穿透服务端(frpcs)到用户指定的服务器
+func (a *App) InstallTunnelServer(serverIP string, sshUser string, sshPassword string, sshPort int, bindPort int, dashboardPort int, dashboardUser string, dashboardPassword string) map[string]interface{} {
+	// 清理服务器地址中的协议前缀
+	serverIP = strings.TrimPrefix(serverIP, "http://")
+	serverIP = strings.TrimPrefix(serverIP, "https://")
+	serverIP = strings.TrimRight(serverIP, "/")
+
+	log.Printf("[公网穿透服务端] 开始安装: %s", serverIP)
+
+	if serverIP == "" {
+		return map[string]interface{}{"success": false, "message": "服务器地址不能为空"}
+	}
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	if sshPassword == "" {
+		return map[string]interface{}{"success": false, "message": "SSH密码不能为空"}
+	}
+	if sshPort == 0 {
+		sshPort = 22
+	}
+	if bindPort == 0 {
+		bindPort = 7000
+	}
+	if dashboardPort == 0 {
+		dashboardPort = 7500
+	}
+	if dashboardUser == "" {
+		dashboardUser = "admin"
+	}
+	if dashboardPassword == "" {
+		dashboardPassword = "admin"
+	}
+
+	// 1. 下载frps
+	localDir := filepath.Join(os.TempDir(), "frps-install")
+	os.RemoveAll(localDir)
+	os.MkdirAll(localDir, 0755)
+	defer os.RemoveAll(localDir)
+
+	// 从本地下载frps tar.gz，依次尝试多个镜像
+	localTarPath := filepath.Join(localDir, "frps.tar.gz")
+	mirrors := []string{
+		"https://ghfast.top/https://github.com/fatedier/frp/releases/download/v0.68.1/frp_0.68.1_linux_amd64.tar.gz",
+		"https://mirror.ghproxy.com/https://github.com/fatedier/frp/releases/download/v0.68.1/frp_0.68.1_linux_amd64.tar.gz",
+		"https://github.com/fatedier/frp/releases/download/v0.68.1/frp_0.68.1_linux_amd64.tar.gz",
+	}
+	var downloadErr error
+	for _, mirror := range mirrors {
+		log.Printf("[公网穿透服务端] 尝试下载frps: %s", mirror)
+		downloadErr = downloadFile(mirror, localTarPath)
+		if downloadErr == nil {
+			break
+		}
+		log.Printf("[公网穿透服务端] 下载失败(%s): %v，尝试下一个镜像", mirror, downloadErr)
+		os.Remove(localTarPath)
+	}
+	if downloadErr != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("下载frps失败(已尝试所有镜像): %v", downloadErr)}
+	}
+	if err := extractFRPSFromTarGz(localTarPath, localDir); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("解压frps失败: %v", err)}
+	}
+
+	// 2. 生成 frps.toml 配置
+	configContent := generateFrpsConfig(bindPort, dashboardPort, dashboardUser, dashboardPassword)
+	configPath := filepath.Join(localDir, "frps.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("生成配置失败: %v", err)}
+	}
+
+	// 3. 生成 systemd 服务文件
+	deployDir := filepath.Join(localDir, "deploy")
+	os.MkdirAll(deployDir, 0755)
+	generateFrpsSystemdService(deployDir)
+
+	// 4. SSH连接到用户服务器
+	sshConfig := &ssh.ClientConfig{
+		User:            sshUser,
+		Auth: []ssh.AuthMethod{
+				ssh.Password(sshPassword),
+				ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+					answers := make([]string, len(questions))
+					for i := range answers {
+						answers[i] = sshPassword
+					}
+					return answers, nil
+				}),
+			},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+	addr := fmt.Sprintf("%s:%d", serverIP, sshPort)
+	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("SSH连接 %s 失败: %v", addr, err)}
+	}
+	defer sshClient.Close()
+
+	// 停止已有frps服务
+	runSSHCmd(sshClient, fmt.Sprintf("echo '%s' | sudo -S systemctl stop frps 2>/dev/null; echo '%s' | sudo -S killall frps 2>/dev/null; true", sshPassword, sshPassword))
+	time.Sleep(2 * time.Second)
+	// 确保端口已释放，强制杀掉占用端口的进程
+	runSSHCmd(sshClient, fmt.Sprintf("echo '%s' | sudo -S fuser -k %d/tcp 2>/dev/null; echo '%s' | sudo -S fuser -k %d/tcp 2>/dev/null; true", sshPassword, bindPort, sshPassword, dashboardPort))
+	time.Sleep(1 * time.Second)
+
+	// 清理旧文件
+	runSSHCmd(sshClient, fmt.Sprintf("echo '%s' | sudo -S rm -f /usr/local/bin/frps /etc/frps/frps.toml", sshPassword))
+	runSSHCmd(sshClient, fmt.Sprintf("echo '%s' | sudo -S rm -rf /tmp/deploy-frps", sshPassword))
+
+	// 5. SFTP上传所有文件
+	sftpClient, err := sftpNewClient(sshClient)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("SFTP连接失败: %v", err)}
+	}
+	defer sftpClient.Close()
+
+	sftpClient.MkdirAll("/tmp/deploy-frps")
+	if err := sftpUploadFile(sftpClient, filepath.Join(localDir, "frps"), "/tmp/deploy-frps/frps", 0755); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("上传frps失败: %v", err)}
+	}
+	if err := sftpUploadFile(sftpClient, configPath, "/tmp/deploy-frps/frps.toml", 0644); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("上传配置文件失败: %v", err)}
+	}
+	if err := sftpUploadDir(sftpClient, deployDir, "/tmp/deploy-frps"); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("上传服务文件失败: %v", err)}
+	}
+
+	// 6. 注册并启动服务
+	steps := []struct {
+		desc string
+		cmd  string
+	}{
+		{"移动二进制", fmt.Sprintf("echo '%s' | sudo -S cp /tmp/deploy-frps/frps /usr/local/bin/frps && echo '%s' | sudo -S chmod +x /usr/local/bin/frps", sshPassword, sshPassword)},
+		{"创建配置目录", fmt.Sprintf("echo '%s' | sudo -S mkdir -p /etc/frps", sshPassword)},
+		{"移动配置文件", fmt.Sprintf("echo '%s' | sudo -S cp /tmp/deploy-frps/frps.toml /etc/frps/frps.toml", sshPassword)},
+		{"复制服务文件", fmt.Sprintf("echo '%s' | sudo -S sh -c 'cp /tmp/deploy-frps/frps.service /etc/systemd/system/frps.service && sed -i \"s/\r$//\" /etc/systemd/system/frps.service'", sshPassword)},
+		{"重载systemd", fmt.Sprintf("echo '%s' | sudo -S systemctl daemon-reload", sshPassword)},
+		{"注册开机启动", fmt.Sprintf("echo '%s' | sudo -S systemctl enable frps", sshPassword)},
+		{"启动服务", fmt.Sprintf("echo '%s' | sudo -S systemctl start frps", sshPassword)},
+	}
+	for _, step := range steps {
+		output, err := sshExecCommandWithOutput(sshClient, step.cmd)
+		if err != nil {
+			log.Printf("[公网穿透服务端] %s: %v (%s)", step.desc, err, strings.TrimSpace(output))
+		}
+	}
+
+// 7. 等待启动并验证
+	time.Sleep(3 * time.Second)
+	frspRunning := false
+	for i := 0; i < 3; i++ {
+		time.Sleep(2 * time.Second)
+		psOutput, _ := sshExecCommandWithOutput(sshClient, "ps aux | grep /usr/local/bin/frps | grep -v grep")
+		if strings.TrimSpace(psOutput) != "" {
+			frspRunning = true
+			break
+		}
+	}
+	if !frspRunning {
+			// 输出诊断信息
+			runOutput, _ := sshExecCommandWithOutput(sshClient, fmt.Sprintf("echo '%s' | sudo -S timeout 5 /usr/local/bin/frps -c /etc/frps/frps.toml 2>&1 || true", sshPassword))
+			log.Printf("[公网穿透服务端] 运行frps输出: %s", runOutput)
+			configOutput, _ := sshExecCommandWithOutput(sshClient, "cat /etc/frps/frps.toml")
+			log.Printf("[公网穿透服务端] 配置文件: %s", configOutput)
+			return map[string]interface{}{"success": false, "message": fmt.Sprintf("frps启动失败\n运行输出: %s", strings.TrimSpace(runOutput))}
+		}
+
+		// 检查端口是否监听
+	portOutput, _ := sshExecCommandWithOutput(sshClient, fmt.Sprintf("ss -tlnp | grep ':%d '", bindPort))
+	if strings.TrimSpace(portOutput) == "" {
+		log.Printf("[公网穿透服务端] 端口 %d 未监听", bindPort)
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("frps端口 %d 未监听，可能启动失败", bindPort)}
+	}
+
+	dashboardURL := fmt.Sprintf("http://%s:%d", serverIP, dashboardPort)
+	log.Printf("[公网穿透服务端] 安装成功: %s, 绑定端口: %d, 管理面板: %s", serverIP, bindPort, dashboardURL)
+
+	return map[string]interface{}{
+		"success":       true,
+		"message":       fmt.Sprintf("公网穿透服务端安装成功，服务器: %s，绑定端口: %d，管理面板: %s", serverIP, bindPort, dashboardURL),
+		"serverAddr":    serverIP,
+		"bindPort":      bindPort,
+		"dashboardURL":  dashboardURL,
+		"dashboardUser": dashboardUser,
+	}
+}
+
+// UninstallTunnelServer 卸载公网穿透服务端(frps)
+func (a *App) UninstallTunnelServer(serverIP string, sshUser string, sshPassword string, sshPort int) map[string]interface{} {
+	log.Printf("[公网穿透服务端] 开始卸载: %s", serverIP)
+
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	if sshPort == 0 {
+		sshPort = 22
+	}
+
+	sshConfig := &ssh.ClientConfig{
+		User:            sshUser,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(sshPassword),
+			ssh.KeyboardInteractive(func(user, instruction string, questions []string, echos []bool) ([]string, error) {
+				answers := make([]string, len(questions))
+				for i := range answers {
+					answers[i] = sshPassword
+				}
+				return answers, nil
+			}),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+	addr := fmt.Sprintf("%s:%d", serverIP, sshPort)
+	sshClient, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("SSH连接 %s 失败: %v", addr, err)}
+	}
+	defer sshClient.Close()
+
+	steps := []struct {
+		desc string
+		cmd  string
+	}{
+		{"停止服务", fmt.Sprintf("echo '%s' | sudo -S systemctl stop frps 2>/dev/null || true", sshPassword)},
+		{"禁用服务", fmt.Sprintf("echo '%s' | sudo -S systemctl disable frps 2>/dev/null || true", sshPassword)},
+		{"删除服务文件", fmt.Sprintf("echo '%s' | sudo -S rm -f /etc/systemd/system/frps.service", sshPassword)},
+		{"重载systemd", fmt.Sprintf("echo '%s' | sudo -S systemctl daemon-reload", sshPassword)},
+		{"删除二进制", fmt.Sprintf("echo '%s' | sudo -S rm -f /usr/local/bin/frps", sshPassword)},
+		{"删除配置", fmt.Sprintf("echo '%s' | sudo -S rm -rf /etc/frps", sshPassword)},
+		{"清理临时文件", fmt.Sprintf("echo '%s' | sudo -S rm -rf /tmp/deploy-frps", sshPassword)},
+	}
+
+	for _, step := range steps {
+		output, err := sshExecCommandWithOutput(sshClient, step.cmd)
+		if err != nil && !strings.Contains(output, "not found") {
+			log.Printf("[公网穿透服务端] %s: %v (%s)", step.desc, err, strings.TrimSpace(output))
+		}
+	}
+
+	log.Printf("[公网穿透服务端] 卸载成功")
+	return map[string]interface{}{"success": true, "message": "公网穿透服务端卸载成功"}
+}
+
+// generateFrpsConfig 生成 frps.toml 配置内容
+func generateFrpsConfig(bindPort int, dashboardPort int, dashboardUser string, dashboardPassword string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("bindPort = %d\n", bindPort))
+
+	// 允许自动分配的端口范围，避免与低端口冲突
+	sb.WriteString("\nallowPorts = [\n")
+	sb.WriteString("  { start = 10000, end = 60000 }\n")
+	sb.WriteString("]\n")
+
+	// Dashboard
+	sb.WriteString("\n[webServer]\n")
+	sb.WriteString(fmt.Sprintf("addr = \"0.0.0.0\"\n"))
+	sb.WriteString(fmt.Sprintf("port = %d\n", dashboardPort))
+	sb.WriteString(fmt.Sprintf("user = \"%s\"\n", dashboardUser))
+	sb.WriteString(fmt.Sprintf("password = \"%s\"\n", dashboardPassword))
+
+	return sb.String()
+}
+
+// generateFrpsSystemdService 生成 frps systemd 服务文件
+func generateFrpsSystemdServiceContent() string {
+	return `[Unit]
+Description=FRP Server - Public Network Tunnel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/frps
+ExecStart=/usr/local/bin/frps -c /etc/frps/frps.toml
+
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+`
+}
+
+func generateFrpsSystemdService(dir string) {
+	content := `[Unit]
+Description=FRP Server - Public Network Tunnel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/frps
+ExecStart=/usr/local/bin/frps -c /etc/frps/frps.toml
+
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+`
+	os.WriteFile(filepath.Join(dir, "frps.service"), []byte(content), 0644)
+}
+
+// extractFRPSFromTarGz 从tar.gz包中解压frps二进制
+func extractFRPSFromTarGz(tarPath, targetDir string) error {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return fmt.Errorf("打开tar.gz文件失败: %w", err)
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("解压gzip失败: %w", err)
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	found := false
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("读取tar失败: %w", err)
+		}
+		baseName := filepath.Base(hdr.Name)
+		if baseName != "frps" && baseName != "frps.toml" {
+			continue
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		dstPath := filepath.Join(targetDir, baseName)
+		dst, err := os.Create(dstPath)
+		if err != nil {
+			return fmt.Errorf("创建文件 %s 失败: %w", dstPath, err)
+		}
+		if _, err := io.Copy(dst, tr); err != nil {
+			dst.Close()
+			return fmt.Errorf("写入文件 %s 失败: %w", dstPath, err)
+		}
+		dst.Close()
+		if baseName == "frps" {
+			os.Chmod(dstPath, 0755)
+		}
+		log.Printf("[公网穿透服务端] 解压文件: %s -> %s", hdr.Name, baseName)
+		found = true
+	}
+	if !found {
+		return fmt.Errorf("tar.gz包中未找到frps文件")
+	}
+	return nil
+}
+
+// extractFRPSFromZip 从zip包中解压frps二进制
+func extractFRPSFromZip(zipPath, targetDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("打开zip文件失败: %w", err)
+	}
+	defer r.Close()
+
+	// 列出zip内所有文件用于调试
+	var fileNames []string
+	for _, f := range r.File {
+		fileNames = append(fileNames, f.Name)
+	}
+	log.Printf("[公网穿透服务端] zip内文件列表: %v", fileNames)
+
+	found := false
+	for _, f := range r.File {
+		baseName := filepath.Base(f.Name)
+		if baseName != "frps" && baseName != "frps.toml" {
+			continue
+		}
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("打开zip内文件 %s 失败: %w", f.Name, err)
+		}
+
+		dstPath := filepath.Join(targetDir, baseName)
+		dst, err := os.Create(dstPath)
+		if err != nil {
+			rc.Close()
+			return fmt.Errorf("创建文件 %s 失败: %w", dstPath, err)
+		}
+
+		if _, err := io.Copy(dst, rc); err != nil {
+			dst.Close()
+			rc.Close()
+			return fmt.Errorf("写入文件 %s 失败: %w", dstPath, err)
+		}
+		dst.Close()
+		rc.Close()
+
+		if baseName == "frps" {
+			os.Chmod(dstPath, 0755)
+		}
+		log.Printf("[公网穿透服务端] 解压文件: %s -> %s", f.Name, baseName)
+			found = true
+		}
+		if !found {
+			return fmt.Errorf("zip包中未找到frps文件，包内文件: %v", fileNames)
+		}
+		return nil
+	}

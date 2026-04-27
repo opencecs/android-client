@@ -157,8 +157,8 @@
               <el-button type="primary" size="small" :loading="installingTunnel" @click="installTunnel">
                 {{ t('extension.install') }}
               </el-button>
-              <el-button type="danger" size="small" :loading="uninstallingTunnel" @click="uninstallTunnel">
-                {{ t('extension.uninstall') }}
+              <el-button type="danger" size="small" :loading="uninstallingTunnel" @click="uninstallTunnelAll">
+                卸载
               </el-button>
               <el-button type="info" size="small" @click="showUsageGuide('tunnel')">
                 {{ t('extension.usageGuide') }}
@@ -171,6 +171,9 @@
             <el-alert :type="operationStatus.type" :closable="false" show-icon>
               <template #title>{{ operationStatus.message }}</template>
             </el-alert>
+            <div v-if="operationStatus.serverAddr" style="margin-top: 6px; font-size: 13px; color: #606266;">
+              服务端地址: <span style="font-weight: 600;">{{ operationStatus.serverAddr }}:7500</span>
+            </div>
             <div v-if="operationStatus.webAddress || operationStatus.url" style="margin-top: 8px; display: flex; gap: 8px;">
               <el-button v-if="operationStatus.webAddress" type="primary" size="small" @click="openUrl(operationStatus.webAddress)">
                 Web管理界面
@@ -229,28 +232,21 @@
           <p style="color: #909399;">公网穿透可以将内网设备的服务暴露到公网，让你从任何地方远程访问。</p>
           <el-divider />
           <p><strong>使用步骤：</strong></p>
-          <p><strong>1.</strong> 准备一台有公网 IP 的服务器，运行 frps（服务端）</p>
-          <p><strong>2.</strong> 在左侧选择设备，点击"安装"，填写服务器地址和端口</p>
-          <p><strong>3.</strong> 安装成功后，设备会自动连接到公网服务器</p>
-          <p><strong>4.</strong> 通过公网服务器的端口即可远程访问该设备</p>
-          <p><strong>5.</strong> 安装成功后可点击“Web管理界面”按钮，可视化管理和配置代理规则</p>
+          <p><strong>1.</strong> 准备一台有公网 IP 的 Linux 服务器</p>
+          <p><strong>2.</strong> 在左侧选择设备，点击"安装"，填写服务器地址和SSH信息</p>
+          <p><strong>3.</strong> 点击"一键安装"，系统将自动在服务器上部署frps服务端，并在设备上安装frpc客户端</p>
+          <p><strong>4.</strong> 安装成功后，通过公网服务器的端口即可远程访问该设备</p>
+          <p><strong>5.</strong> 安装成功后可点击"Web管理界面"按钮，可视化管理和配置代理规则</p>
           <el-divider />
-          <p><strong>Web管理界面登录：</strong></p>
+          <p><strong>管理界面登录：</strong></p>
           <p>账号：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">admin</code></p>
           <p>密码：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">admin</code></p>
           <el-divider />
-          <p><strong>服务器地址：</strong>填写运行 frps 的公网服务器 IP</p>
-          <p><strong>服务器端口：</strong>frps 的监听端口（默认 7000）</p>
-          <p><strong>Token：</strong>如果服务端配置了认证，需填写相同的 Token</p>
-          <el-divider />
-          <p><strong>示例：</strong></p>
-          <p>服务器地址：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">43.136.42.137</code></p>
-          <p>服务器端口：<code style="background: #f5f7fa; padding: 2px 6px; border-radius: 4px;">7000</code></p>
-          <p style="margin-top: 8px;cursor: pointer;color: #409EFF;" @click="openUrl('https://gofrp.org/zh-cn/docs/')"> 查看 frp 官方文档
-            <!-- <el-link type="primary" href="https://gofrp.org/zh-cn/docs/" target="_blank">
-              查看 frp 官方文档
-            </el-link> -->
-          </p>
+          <p><strong>参数说明：</strong></p>
+          <p><strong>服务器地址：</strong>您的公网服务器 IP 地址</p>
+          <p><strong>SSH端口：</strong>服务器 SSH 登录端口（默认 22）</p>
+          <p><strong>frps绑定端口：</strong>frps 服务端监听端口（默认 7000）</p>
+          <p style="margin-top: 8px;cursor: pointer;color: #409EFF;" @click="openUrl('https://gofrp.org/zh-cn/docs/')"> 查看 frp 官方文档</p>
         </div>
       </div>
     </el-dialog>
@@ -259,22 +255,33 @@
     <el-dialog
       v-model="tunnelConfigDialogVisible"
       title="安装公网穿透"
-      width="450px"
+      width="500px"
     >
       <el-form label-position="top" size="default">
+        <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px;">
+          <template #title>
+            系统将自动在您的服务器上部署 frps 服务端，并在所选设备上安装 frpc 客户端
+          </template>
+        </el-alert>
         <el-form-item label="服务器地址">
-          <el-input v-model="tunnelServerAddr" disabled />
+          <el-input v-model="tunnelServerAddr" placeholder="请输入您的公网服务器IP地址" />
         </el-form-item>
-        <el-form-item label="服务器端口">
+        <el-form-item label="服务器SSH端口">
+          <el-input-number v-model="tunnelServerSSHPort" :min="1" :max="65535" style="width: 100%;" />
+        </el-form-item>
+        <el-form-item label="SSH用户名">
+          <el-input v-model="tunnelServerSSHUser" />
+        </el-form-item>
+        <el-form-item label="SSH密码">
+          <el-input v-model="tunnelServerSSHPassword" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="frps绑定端口">
           <el-input-number v-model="tunnelServerPort" :min="1" :max="65535" style="width: 100%;" />
         </el-form-item>
-        <!-- <el-form-item label="Token">
-          <el-input v-model="tunnelToken" placeholder="可选，frps认证Token" />
-        </el-form-item> -->
       </el-form>
       <template #footer>
         <el-button @click="tunnelConfigDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="installingTunnel" @click="doInstallTunnel">安装</el-button>
+        <el-button type="primary" :loading="installingTunnel" @click="doInstallTunnel">一键安装</el-button>
       </template>
     </el-dialog>
   </div>
@@ -283,7 +290,7 @@
 <script setup>
 import { ref, computed, getCurrentInstance } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { InstallMytPanel, UninstallMytPanel, InstallTunnel, UninstallTunnel, OpenInBrowser } from '../../bindings/edgeclient/app'
+import { InstallMytPanel, UninstallMytPanel, InstallTunnel, UninstallTunnel, InstallTunnelServer, UninstallTunnelServer, OpenInBrowser } from '../../bindings/edgeclient/app'
 
 const { proxy } = getCurrentInstance()
 
@@ -318,6 +325,7 @@ defineEmits(['upgrade-device'])
 // 各型号最新固件版本要求
 const LATEST_FIRMWARE_VERSIONS = {
   'r1q_v3': 'v0.2.0',
+  'q1n_v3': 'v0.3.7',
   'q1_v3': 'v0.7.9',
   'c1_v3': 'v0.5.7',
   'r1s_v3': 'v0.4.6',
@@ -360,11 +368,20 @@ const compareVersions = (v1, v2) => {
 // 检查固件是否满足扩展服务要求
 const getFirmwareCheck = (device) => {
   if (!device) return { supported: false, isLatest: false, currentVersion: '', latestVersion: '' }
-  const modelName = (device.name || '').toLowerCase()
+  let modelName = (device.name || '').toLowerCase()
+  const firmwareInfo = props.deviceFirmwareInfo.get(device.id)
+  const sdkVer = firmwareInfo?.sdkVersion || ''
+
+  // Q1_v3 需要通过固件版本区分 Q1n 和 Q1
+  if (modelName === 'q1_v3') {
+    if (sdkVer.toLowerCase().includes('q1n')) {
+      modelName = 'q1n_v3'
+    }
+  }
+
   const latestVersion = LATEST_FIRMWARE_VERSIONS[modelName]
   if (!latestVersion) return { supported: false, isLatest: false, currentVersion: '', latestVersion: '', reason: 'unsupported_model' }
-  const firmwareInfo = props.deviceFirmwareInfo.get(device.id)
-  const currentVersion = firmwareInfo?.sdkVersion || ''
+  const currentVersion = sdkVer
   const isLatest = compareVersions(currentVersion, latestVersion) >= 0
   return { supported: true, isLatest, currentVersion, latestVersion }
 }
@@ -502,9 +519,11 @@ const uninstallMytPanel = async () => {
 }
 
 // 安装公网穿透 - 需要填写服务器配置
-const tunnelServerAddr = ref('43.136.42.137')
+const tunnelServerAddr = ref('')
 const tunnelServerPort = ref(7000)
-const tunnelToken = ref('')
+const tunnelServerSSHPort = ref(22)
+const tunnelServerSSHUser = ref('root')
+const tunnelServerSSHPassword = ref('')
 const tunnelConfigDialogVisible = ref(false)
 
 const installTunnel = () => {
@@ -517,15 +536,45 @@ const doInstallTunnel = async () => {
     ElMessage.warning('请填写服务器地址')
     return
   }
+  if (!tunnelServerSSHPassword.value) {
+    ElMessage.warning('请填写SSH密码')
+    return
+  }
   tunnelConfigDialogVisible.value = false
   installingTunnel.value = true
   operationStatus.value = null
   try {
+    // 第一步：在用户服务器上安装frps服务端
+    ElMessage.info('正在安装服务端(frps)到服务器...')
+    const serverResult = await InstallTunnelServer(
+      tunnelServerAddr.value,
+      tunnelServerSSHUser.value || 'user',
+      tunnelServerSSHPassword.value || 'myt',
+      tunnelServerSSHPort.value || 22,
+      tunnelServerPort.value || 7000,
+      7500, 'admin', 'admin'
+    )
+    if (!serverResult.success) {
+      operationStatus.value = { type: 'error', message: serverResult.message || '服务端安装失败' }
+      ElMessage.error(serverResult.message || '服务端安装失败')
+      return
+    }
+    ElMessage.success('服务端安装成功，正在安装客户端(frpc)到设备...')
+
+    // 第二步：在设备上安装frpc客户端
     const ip = extractPureIP(selectedDevice.value.ip)
-    const result = await InstallTunnel(ip, tunnelServerAddr.value, tunnelServerPort.value, tunnelToken.value)
+    const result = await InstallTunnel(ip, tunnelServerAddr.value, tunnelServerPort.value, '')
     if (result.success) {
       const msg = result.message || t('extension.installSuccess')
-      operationStatus.value = { type: 'success', message: msg, url: result.webAddress || result.remoteAddress || '', webAddress: result.webAddress || '', remoteAddress: result.remoteAddress || '' }
+      operationStatus.value = {
+        type: 'success',
+        message: msg,
+        url: result.webAddress || result.remoteAddress || '',
+        webAddress: result.webAddress || '',
+        remoteAddress: result.remoteAddress || '',
+        serverAddr: tunnelServerAddr.value,
+        serverPort: tunnelServerPort.value || 7000,
+      }
       ElMessage.success(msg)
     } else {
       operationStatus.value = { type: 'error', message: result.message || t('extension.installFailed') }
@@ -541,12 +590,13 @@ const doInstallTunnel = async () => {
 }
 
 // 卸载公网穿透
-const uninstallTunnel = async () => {
+// 一键卸载公网穿透（客户端+服务端）
+const uninstallTunnelAll = async () => {
   if (!selectedDevice.value) return
   try {
-    await ElMessageBox.confirm(t('extension.uninstallConfirm'), t('extension.uninstall'), {
-      confirmButtonText: t('extension.confirmUninstall'),
-      cancelButtonText: t('extension.cancelUninstall'),
+    await ElMessageBox.confirm('确认卸载公网穿透？将同时卸载设备上的客户端和服务器上的服务端。', '卸载公网穿透', {
+      confirmButtonText: '确认卸载',
+      cancelButtonText: '取消',
       type: 'warning',
     })
   } catch {
@@ -555,19 +605,35 @@ const uninstallTunnel = async () => {
   uninstallingTunnel.value = true
   operationStatus.value = null
   try {
+    // 第一步：卸载客户端
     const ip = extractPureIP(selectedDevice.value.ip)
-    const result = await UninstallTunnel(ip)
-    if (result.success) {
-      operationStatus.value = { type: 'success', message: t('extension.uninstallSuccess') }
-      ElMessage.success(t('extension.uninstallSuccess'))
+    const clientResult = await UninstallTunnel(ip)
+    if (clientResult.success) {
+      ElMessage.success('客户端卸载成功')
     } else {
-      operationStatus.value = { type: 'error', message: result.message || t('extension.uninstallFailed') }
-      ElMessage.error(result.message || t('extension.uninstallFailed'))
+      ElMessage.warning(clientResult.message || '客户端卸载失败')
     }
+
+    // 第二步：卸载服务端
+    if (tunnelServerAddr.value && tunnelServerSSHPassword.value) {
+      const serverResult = await UninstallTunnelServer(
+        tunnelServerAddr.value,
+        tunnelServerSSHUser.value || 'root',
+        tunnelServerSSHPassword.value,
+        tunnelServerSSHPort.value || 22
+      )
+      if (serverResult.success) {
+        ElMessage.success('服务端卸载成功')
+      } else {
+        ElMessage.warning(serverResult.message || '服务端卸载失败')
+      }
+    }
+
+    operationStatus.value = { type: 'success', message: '公网穿透已卸载' }
   } catch (e) {
     console.error('[扩展服务] 卸载公网穿透失败:', e)
-    operationStatus.value = { type: 'error', message: t('extension.uninstallFailed') + `: ${e.message || e}` }
-    ElMessage.error(t('extension.uninstallFailed') + `: ${e.message || e}`)
+    operationStatus.value = { type: 'error', message: `卸载失败: ${e.message || e}` }
+    ElMessage.error(`卸载失败: ${e.message || e}`)
   } finally {
     uninstallingTunnel.value = false
   }

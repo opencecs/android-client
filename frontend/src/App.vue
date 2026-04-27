@@ -104,6 +104,7 @@ import {
   HttpRequest,
   ListSharedDirFiles,
   InstallAPK,
+  InstallAPKs,
   UploadFileToCloudMachine,
   UploadFileToSharedDir,
   OpenSharedDirectory,
@@ -980,6 +981,7 @@ const v3DeviceInfoTimer = ref(null) // V3设备信息定时器
 
 // 文件上传相关
 const fileInput = ref(null) // 文件输入框引用
+const apkFileInput = ref(null) // APK上传输入框引用
 const contextMenuContainerId = ref('') // 当前右键菜单操作的容器ID
 const contextMenuContainer = ref(null) // 当前右键菜单操作的容器对象
 const sharedFilesDialogVisible = ref(false) // 共享文件对话框可见性
@@ -12908,6 +12910,85 @@ const handleFileUpload = () => {
   closeContextMenu()
 }
 
+// 上传APK - 打开文件选择
+const handleApkUpload = () => {
+  const container = contextMenuContainer.value
+  if (!container) {
+    ElMessage.error('未找到容器信息')
+    closeContextMenu()
+    return
+  }
+  contextMenuContainerId.value = container.containerId || container.id || container.indexNum || contextMenuSlot.value
+  if (apkFileInput.value) {
+    apkFileInput.value.click()
+  }
+  closeContextMenu()
+}
+
+// APK文件选择后上传
+const handleApkFileSelect = async (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  // 重置input，允许重复选择同一文件
+  event.target.value = ''
+
+  const container = contextMenuContainer.value
+  if (!container || !activeDevice.value?.ip) {
+    ElMessage.error('设备信息不完整，无法上传APK')
+    return
+  }
+
+  const password = getDevicePassword(activeDevice.value.ip) || ''
+  try {
+    ElMessage.info('正在上传APK安装包...')
+    const result = await InstallAPKs(
+      activeDevice.value.ip,
+      contextMenuContainerId.value,
+      file.path,
+      password
+    )
+    if (result.success) {
+      // 显示安装结果
+      let msg = result.message || 'APK安装包上传成功'
+      if (result.installData) {
+        const installData = result.installData
+        if (typeof installData === 'object') {
+          // 解析安装结果列表
+          const results = []
+          if (Array.isArray(installData)) {
+            installData.forEach(item => {
+              const name = item.name || item.packageName || item.fileName || ''
+              const status = item.success || item.status || item.result || ''
+              if (name || status) results.push(`${name}: ${status}`)
+            })
+          } else {
+            Object.entries(installData).forEach(([key, val]) => {
+              results.push(`${key}: ${typeof val === 'object' ? JSON.stringify(val) : val}`)
+            })
+          }
+          if (results.length > 0) msg += '\n' + results.join('\n')
+        } else if (typeof installData === 'string') {
+          msg += '\n' + installData
+        }
+      }
+      if (result.installResult && typeof result.installResult === 'string') {
+        msg += '\n' + result.installResult
+      }
+      ElMessage.success(msg)
+    } else {
+      let msg = result.message || 'APK安装失败'
+      if (result.installData) {
+        msg += '\n' + (typeof result.installData === 'string' ? result.installData : JSON.stringify(result.installData))
+      }
+      ElMessage.error(msg)
+    }
+  } catch (error) {
+    console.error('上传APK失败:', error)
+    ElMessage.error(`上传APK失败: ${error.message || error}`)
+  }
+}
+
 // 排序文件树节点
 const sortFileTreeNode = (node) => {
   if (!node || !node.children || node.children.length === 0) {
@@ -13222,6 +13303,8 @@ const handleUploadToCloudMachine = async () => {
         if (result.success) {
           successCount++
           ElMessage.success(`APK安装成功: ${filePath.split('\\').pop().split('/').pop()}`)
+
+
         } else {
           ElMessage.error(`APK安装失败: ${result.message}`)
         }
@@ -13237,14 +13320,14 @@ const handleUploadToCloudMachine = async () => {
         
         if (result.success) {
           successCount++
-        } else {
-          ElMessage.error(`上传文件失败: ${result.message}`)
+          const fileName = filePath.split('\\').pop().split('/').pop()
+          ElMessage.success('文件上传成功')
         }
       }
     }
     
     if (successCount > 0) {
-      ElMessage.success(`成功处理 ${successCount} 个文件`)
+      sharedFilesDialogVisible.value = false
       sharedFilesDialogVisible.value = false
     }
   } catch (error) {
@@ -19442,6 +19525,7 @@ const handleBindsTest = async () => {
             <!-- 安卓版本 -->
             <el-form-item :label="$t('common.androidVersion')">
               <el-select v-model="createForm.androidVersion" style="width: 100%;">
+                <el-option label="Android 10" value="10"></el-option>
                 <el-option label="Android 11" value="11"></el-option>
                 <el-option label="Android 13" value="13"></el-option>
                 <el-option label="Android 14" value="14"></el-option>
@@ -20504,6 +20588,10 @@ const handleBindsTest = async () => {
      <el-icon><Upload /></el-icon>
      <span>{{ $t('cloudMachine.fileUpload') }}</span>
    </div>
+   <div class="context-menu-item" @click="handleApkUpload">
+     <el-icon><Upload /></el-icon>
+     <span>{{ $t('cloudMachine.apkUpload') }}</span>
+   </div>
    <div v-if="getCurrentContextMenuContainer()?.androidType === 'V2'" class="context-menu-item" @click="handleOneKeyNewDevice">
      <el-icon><Switch /></el-icon>
      <span>{{ $t('cloudMachine.oneKeyNewDevice') }}</span>
@@ -20526,7 +20614,16 @@ const handleBindsTest = async () => {
     @change="handleFileSelect"
   />
 
-  
+  <!-- APK上传输入 -->
+  <input
+    ref="apkFileInput"
+    type="file"
+    accept=".zip"
+    style="display: none"
+    @change="handleApkFileSelect"
+  />
+
+
   <!-- 密码设置对话框 -->
   <el-dialog
     v-model="passwordDialogVisible"
@@ -20762,6 +20859,11 @@ const handleBindsTest = async () => {
         <el-button type="primary" size="small" @click="openSharedDirectory">
           打开共享目录
         </el-button>
+      </div>
+
+      <!-- 上传路径说明 -->
+      <div style="margin-bottom: 8px; padding: 6px 12px; background: #ecf5ff; border-radius: 4px; border: 1px solid #d9ecff; font-size: 12px; color: #409eff;">
+        📤 上传完成路径: /sdcard/upload/
       </div>
 
       <!-- 共享目录路径设置 -->

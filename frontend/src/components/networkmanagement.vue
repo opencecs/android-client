@@ -128,7 +128,7 @@
                                 </el-table-column> -->
                                 <el-table-column :label="$t('common.operation')" width="300" align="center" fixed="right">
                                     <template #default="scope">
-                                        <!-- <el-button type="warning" size="small" @click="openEditNodeDialog(scope.row)">{{ $t('network.editNode') }}</el-button> -->
+                                        <el-button type="warning" size="small" @click="openEditNodeDialog(scope.row)">{{ $t('network.editNode') }}</el-button>
                                         <el-button type="danger" size="small" @click="deleteContainerRule(scope.row)">{{ $t('network.deleteGroupNode') }}</el-button>
                                         <el-button type="primary" size="small" @click="testSpeed(scope.row)">{{ $t('network.speedTest') }}</el-button>
                                     </template>

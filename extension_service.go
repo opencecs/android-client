@@ -447,11 +447,26 @@ func sshExecCommandWithOutput(client *ssh.Client, cmd string) (string, error) {
 		return "", fmt.Errorf("创建SSH session失败: %w", err)
 	}
 	defer session.Close()
-	output, err := session.CombinedOutput(cmd)
-	if err != nil {
-		return string(output), fmt.Errorf("执行命令失败 [%s]: %w", cmd, err)
+
+	// 设置命令超时，避免长时间阻塞
+	done := make(chan struct{})
+	var output []byte
+	var execErr error
+	go func() {
+		output, execErr = session.CombinedOutput(cmd)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if execErr != nil {
+			return string(output), fmt.Errorf("执行命令失败 [%s]: %w", cmd, execErr)
+		}
+		return string(output), nil
+	case <-time.After(5 * time.Minute):
+		session.Close()
+		return "", fmt.Errorf("执行命令超时 [%s]", cmd)
 	}
-	return string(output), nil
 }
 
 func detectDeviceOS(client *ssh.Client) (string, error) {
