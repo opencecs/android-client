@@ -18,7 +18,7 @@ import (
 const (
 	androidPollInterval  = 5 * time.Second // 主循环扫描间隔
 	androidQueryTimeout  = 8 * time.Second // 单台设备查询超时
-	androidMaxConcurrent = 200             // 最大并发查询数
+	androidMaxConcurrent = 50             // 最大并发查询数
 	androidMaxFailCount  = 4               // 连续失败超过此值认为设备离线
 )
 
@@ -40,9 +40,9 @@ type ScreenshotEntry struct {
 }
 
 const (
-	screenshotPollInterval  = 400 * time.Millisecond // 后端截图轮询间隔
+	screenshotPollInterval  = 1000 * time.Millisecond // 后端截图轮询间隔
 	screenshotHTTPTimeout   = 2 * time.Second        // 单次截图 HTTP 超时
-	screenshotMaxConcurrent = 50                     // 最大并发抓图 goroutine 数
+	screenshotMaxConcurrent = 20                     // 最大并发抓图 goroutine 数
 )
 
 // StartAndroidPoll 启动安卓容器列表后台轮询（幂等，重复调用无副作用）

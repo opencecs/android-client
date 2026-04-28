@@ -245,9 +245,9 @@ func (a *App) StartDeviceHeartbeat() {
 	
 	// log.Printf("[心跳] 启动设备心跳检测服务 (TCP Ping模式)")
 	
-	// ========== 定时器1: TCP Ping心跳检测 (1秒间隔) ==========
+	// ========== 定时器1: TCP Ping心跳检测 (3秒间隔) ==========
 	go func() {
-		ticker := time.NewTicker(1 * time.Second)
+		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
 		defer func() {
 			a.heartbeatMutex.Lock()
@@ -532,6 +532,7 @@ func (a *App) tcpPingSingleDevice(deviceIP string) {
 		status.ConsecutiveSuccesses = 0      // 清零成功计数
 		status.ConsecutiveFailures++         // 增加失败计数
 		status.LastCheckAt = now
+		status.LastHTTPVerifyTime = now      // 记录HTTP验证时间
 		
 		if err != nil {
 			log.Printf("[TCP Ping] ❌ 设备 %s (%s) TCP连接失败 (连续失败%d次): %v", deviceIP, a.getDeviceName(deviceIP), status.ConsecutiveFailures, err)
@@ -553,7 +554,26 @@ func (a *App) tcpPingSingleDevice(deviceIP string) {
 			status.ResponseTime = status.LastSuccessLatency
 		}
 	} else {
-		// ========== TCP Ping成功且延迟≤150ms,进行HTTP验证 ==========
+		// ========== TCP Ping成功且延迟≤500ms ==========
+
+		// 优化: 稳定在线设备降频HTTP验证（每30秒验证一次），大幅减少网络请求
+		// 条件: 已在线 + 连续成功>=4次 + 上次HTTP验证在30秒内
+		needHTTPVerify := true
+		if status.Status == "online" && status.ConsecutiveSuccesses >= 4 && !status.LastHTTPVerifyTime.IsZero() && time.Since(status.LastHTTPVerifyTime) < 30*time.Second {
+			needHTTPVerify = false
+		}
+
+		if !needHTTPVerify {
+			// 跳过HTTP验证，仅用TCP Ping维持在线状态
+			status.ConsecutiveFailures = 0
+			status.ConsecutiveSuccesses++
+			status.ResponseTime = latency
+			status.LastSuccessLatency = latency
+			status.LastCheckAt = now
+		status.LastHTTPVerifyTime = now      // 记录HTTP验证时间
+			return
+		}
+
 		// 释放锁,避免HTTP请求阻塞其他设备的状态更新
 		a.deviceStatusMutex.Unlock()
 
@@ -574,6 +594,7 @@ func (a *App) tcpPingSingleDevice(deviceIP string) {
 			status.ConsecutiveSuccesses = 0
 			status.ConsecutiveFailures++
 			status.LastCheckAt = now
+		status.LastHTTPVerifyTime = now      // 记录HTTP验证时间
 
 			log.Printf("[TCP Ping] ❌ 设备 %s (%s) HTTP验证失败 (端口可能被占用, 连续失败%d次)", deviceIP, a.getDeviceName(deviceIP), status.ConsecutiveFailures)
 
@@ -592,6 +613,7 @@ func (a *App) tcpPingSingleDevice(deviceIP string) {
 			status.ConsecutiveSuccesses = 0
 			status.ConsecutiveFailures = 0
 			status.LastCheckAt = now
+		status.LastHTTPVerifyTime = now      // 记录HTTP验证时间
 			// 保持或设置为 offline,直到认证成功后的 /info 返回 2xx
 			if status.Status != "offline" && status.Status != "" {
 				// 已经在线的设备突然变成401(密码变了),标为离线
@@ -610,6 +632,7 @@ func (a *App) tcpPingSingleDevice(deviceIP string) {
 		status.ResponseTime = latency       // 更新当前延迟
 		status.LastSuccessLatency = latency // 缓存成功延迟
 		status.LastCheckAt = now
+		status.LastHTTPVerifyTime = now      // 记录HTTP验证时间
 
 		// 输出每个设备的独立延迟(用于调试和监控)
 		// log.Printf("[TCP Ping] 📡 设备 %s (%s) 延迟: %dms (连续成功%d次)", deviceIP, a.getDeviceName(deviceIP), latency, status.ConsecutiveSuccesses)
@@ -969,6 +992,7 @@ func (a *App) updateDeviceStatus(ip, status string, responseTime int64, infoResp
 		statusData.ConsecutiveSuccesses = oldStatus.ConsecutiveSuccesses
 		statusData.LastSuccessLatency = oldStatus.LastSuccessLatency
 		statusData.LastAPICheckTime = oldStatus.LastAPICheckTime
+			statusData.LastHTTPVerifyTime = oldStatus.LastHTTPVerifyTime
 	}
 	
 	a.deviceStatusMap[ip] = statusData

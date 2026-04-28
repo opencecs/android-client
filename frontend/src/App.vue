@@ -11,7 +11,7 @@ const getDeviceAddr = (ip) => {
 
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, reactive, getCurrentInstance } from 'vue'
 import axios from 'axios'
-import { More, Plus, Loading, Warning, Refresh, Download, Delete, Close, Switch, Upload, QuestionFilled, List, Timer, InfoFilled, ArrowRight, ArrowDown, FolderOpened, CircleCheck, CircleClose, Setting, BellFilled, WarningFilled } from '@element-plus/icons-vue'
+import { More, Plus, Loading, Warning, Refresh, Download, Delete, Close, Switch, Upload, QuestionFilled, List, Timer, InfoFilled, ArrowRight, ArrowDown, Back, FolderOpened, Document, CircleCheck, CircleClose, Setting, BellFilled, WarningFilled } from '@element-plus/icons-vue'
 import { Events } from '@wailsio/runtime'
 // 导入模型管理组件
 import ModelManagement from './components/modelManagement.vue'
@@ -131,6 +131,8 @@ import {
   SelectDirectory,
   GetSharedDirPath,
   SetSharedDirPath,
+  ListLocalDirFiles,
+  DownloadCloudFile,
 } from '../bindings/edgeclient/app'
 
 // 导入主机管理组件
@@ -257,7 +259,7 @@ const openSettingsDialog = async () => {
 const handleSelectDirectory = async () => {
   settingsLoading.value = true
   try {
-    const result = await SelectDirectory()
+    const result = await SelectDirectory('')
     if (result && result.success && result.path) {
       storagePathInfo.value.path = result.path
       storagePathInfo.value.isDefault = false
@@ -1016,7 +1018,7 @@ const loadSingleUploadSharedDirPath = async () => {
 const handleSelectSingleUploadSharedDir = async () => {
   singleUploadSharedDirLoading.value = true
   try {
-    const result = await SelectDirectory()
+    const result = await SelectDirectory('')
     if (result && result.success && result.path) {
       const saveResult = await SetSharedDirPath(result.path)
       if (saveResult && saveResult.success) {
@@ -12838,6 +12840,186 @@ const handleSwitchBackup = () => {
 
 
 // 处理文件上传
+const handleFileManager = () => {
+  const container = contextMenuContainer.value
+  if (!container) {
+    ElMessage.warning('请先选择云机')
+    closeContextMenu()
+    return
+  }
+  fileManagerContainer.value = container
+  fileManagerDeviceIp.value = container.deviceIp || activeDevice.value?.ip
+  if (!fileManagerDeviceIp.value) {
+    ElMessage.warning('无法确定设备IP')
+    closeContextMenu()
+    return
+  }
+  closeContextMenu()
+  fileManagerVisible.value = true
+  androidCurrentPath.value = '/'
+  localCurrentPath.value = ''
+  fetchAndroidFiles('/')
+  fetchLocalFiles('')
+}
+
+// 文件管理器
+const fileManagerVisible = ref(false)
+const fileManagerContainer = ref(null)
+const fileManagerDeviceIp = ref('')
+const androidCurrentPath = ref('/')
+const androidFileList = ref([])
+const androidFileLoading = ref(false)
+const localCurrentPath = ref('')
+const localFileList = ref([])
+const localFileLoading = ref(false)
+
+const getDeviceAddrForFiles = (ip) => {
+  if (!ip) return ip
+  const lastColon = ip.lastIndexOf(':')
+  if (lastColon === -1) return ip + ':8000'
+  return /^\d+$/.test(ip.slice(lastColon + 1)) ? ip : ip + ':8000'
+}
+
+const fetchAndroidFiles = async (path) => {
+  if (!fileManagerDeviceIp.value) return
+  androidFileLoading.value = true
+  try {
+    const container = fileManagerContainer.value
+    const port = extractPort9082(container) || 9082
+    const host = (container?.networkName === 'myt' || container?.networkMode === 'myt' || container?.network === 'myt') && container?.ip
+      ? container.ip
+      : fileManagerDeviceIp.value.split(':')[0]
+
+    const result = await HttpRequest({
+      url: `http://${host}:${port}/files?list=${path}`,
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: ''
+    })
+
+    if (result.success && result.body) {
+      const body = result.body
+      if (body.code === 200 && body.files) {
+        androidFileList.value = body.files.map(f => ({
+          name: f.name || '',
+          isDir: !!f.flag,
+          size: f.length || 0,
+          modTime: ''
+        }))
+        androidCurrentPath.value = path
+      } else {
+        androidFileList.value = []
+      }
+    } else {
+      androidFileList.value = []
+    }
+  } catch (e) {
+    console.error('获取Android文件列表失败:', e)
+    androidFileList.value = []
+  } finally {
+    androidFileLoading.value = false
+  }
+}
+
+const fetchLocalFiles = async (path) => {
+  localFileLoading.value = true
+  try {
+    const result = await ListLocalDirFiles(path)
+    if (result.success) {
+      localFileList.value = result.files || []
+      localCurrentPath.value = result.path || path
+    } else {
+      localFileList.value = []
+    }
+  } catch (e) {
+    console.error('获取本地文件列表失败:', e)
+    localFileList.value = []
+  } finally {
+    localFileLoading.value = false
+  }
+}
+
+const androidNavigate = (item) => {
+  if (!item.isDir) return
+  const newPath = androidCurrentPath.value === '/' ? `/${item.name}` : `${androidCurrentPath.value}/${item.name}`
+  fetchAndroidFiles(newPath)
+}
+
+const androidGoUp = () => {
+  if (androidCurrentPath.value === '/') return
+  const parts = androidCurrentPath.value.split('/').filter(Boolean)
+  parts.pop()
+  fetchAndroidFiles(parts.length ? '/' + parts.join('/') : '/')
+}
+
+const localSelectDirectory = async () => {
+  try {
+    const result = await SelectDirectory(localCurrentPath.value || '')
+    if (result.success && result.path) {
+      fetchLocalFiles(result.path)
+    }
+  } catch (e) {
+    console.error('选择目录失败:', e)
+  }
+}
+
+const localNavigate = (item) => {
+  if (!item.isDir) return
+  fetchLocalFiles(item.path || `${localCurrentPath.value}\\${item.name}`)
+}
+
+const localGoUp = () => {
+  if (!localCurrentPath.value) return
+  const parts = localCurrentPath.value.replace(/\\/g, '/').split('/')
+  parts.pop()
+  fetchLocalFiles(parts.join('\\'))
+}
+
+// 下载云机文件到本地
+const downloadCloudFileDialogVisible = ref(false)
+const downloadCloudFileLoading = ref(false)
+const downloadFileInfo = ref({ name: '', path: '' })
+
+const downloadCloudFile = (row) => {
+  const filePath = androidCurrentPath.value === '/' ? `/${row.name}` : `${androidCurrentPath.value}/${row.name}`
+  downloadFileInfo.value = { name: row.name, path: filePath }
+  downloadCloudFileDialogVisible.value = true
+}
+
+const submitDownloadCloudFile = async () => {
+  downloadCloudFileLoading.value = true
+  try {
+    const container = fileManagerContainer.value
+    const port = extractPort9082(container) || 9082
+    const host = (container?.networkName === 'myt' || container?.networkMode === 'myt' || container?.network === 'myt') && container?.ip
+      ? container.ip
+      : fileManagerDeviceIp.value.split(':')[0]
+
+    const downloadURL = `http://${host}:${port}/download?path=${encodeURIComponent(downloadFileInfo.value.path)}`
+    const saveDir = localCurrentPath.value || ''
+
+    if (!saveDir) {
+      ElMessage.warning('请先在右侧选择保存目录')
+      downloadCloudFileLoading.value = false
+      return
+    }
+
+    const result = await DownloadCloudFile(downloadURL, saveDir)
+    if (result.success) {
+      ElMessage.success(result.message || '下载成功')
+      downloadCloudFileDialogVisible.value = false
+      fetchLocalFiles(localCurrentPath.value)
+    } else {
+      ElMessage.error(result.message || '下载失败')
+    }
+  } catch (e) {
+    console.error('下载文件失败:', e)
+    ElMessage.error('下载失败')
+  } finally {
+    downloadCloudFileLoading.value = false
+  }
+}
+
 const handleFileUpload = () => {
   console.log('handleFileUpload called')
   console.log('contextMenuContainer.value:', contextMenuContainer.value)
@@ -20584,6 +20766,10 @@ const handleBindsTest = async () => {
      <el-icon><Switch /></el-icon>
      <span>{{ $t('cloudMachine.switchBackup') }}</span>
    </div>
+   <div class="context-menu-item" @click="handleFileManager">
+     <el-icon><FolderOpened /></el-icon>
+     <span>{{ $t('cloudMachine.fileManager') }}</span>
+   </div>
    <div class="context-menu-item" @click="handleFileUpload">
      <el-icon><Upload /></el-icon>
      <span>{{ $t('cloudMachine.fileUpload') }}</span>
@@ -20826,6 +21012,96 @@ const handleBindsTest = async () => {
           还没有账号？<el-link type="primary" :underline="false" @click="openRegisterFromForgot">立即注册</el-link>
         </div>
       </div>
+    </template>
+  </el-dialog>
+
+  <!-- 文件管理器对话框 -->
+  <el-dialog v-model="fileManagerVisible" :title="$t('cloudMachine.fileManager')" width="80%" top="5vh" :close-on-click-modal="false" destroy-on-close>
+    <div class="file-manager-container">
+      <!-- Android端 -->
+      <div class="file-panel">
+        <div class="file-panel-header">
+          <span style="font-weight: 600;">{{ $t('common.cloudMachine') }}</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <el-button size="small" @click="androidGoUp" :disabled="androidCurrentPath === '/'"><el-icon><Back /></el-icon></el-button>
+            <el-input v-model="androidCurrentPath" size="small" readonly style="flex: 1;" />
+            <el-button size="small" @click="fetchAndroidFiles(androidCurrentPath)">
+              <el-icon><Refresh /></el-icon>
+            </el-button>
+          </div>
+        </div>
+        <el-table :data="androidFileList" v-loading="androidFileLoading" size="small" height="400" style="width: 100%;" @row-dblclick="androidNavigate">
+          <el-table-column width="30">
+            <template #default="scope">
+              <el-icon v-if="scope.row.isDir"><FolderOpened /></el-icon>
+              <el-icon v-else><Document /></el-icon>
+            </template>
+          </el-table-column>
+          <el-table-column prop="name" :label="$t('common.name')" show-overflow-tooltip />
+          <el-table-column :label="$t('common.size')" width="100" align="right">
+            <template #default="scope">
+              {{ scope.row.isDir ? '-' : formatFileSize(scope.row.size) }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('common.operation')" width="80" align="center">
+            <template #default="scope">
+              <el-button v-if="!scope.row.isDir" type="primary" size="small" link @click="downloadCloudFile(scope.row)">{{ $t('common.download') }}</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+
+      <!-- 本地端 -->
+      <div class="file-panel">
+        <div class="file-panel-header">
+          <span style="font-weight: 600;">Windows</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <el-button size="small" @click="localGoUp" :disabled="!localCurrentPath"><el-icon><Back /></el-icon></el-button>
+            <el-input v-model="localCurrentPath" size="small" style="flex: 1;" @keyup.enter="fetchLocalFiles(localCurrentPath)" />
+            <el-button size="small" @click="localSelectDirectory">
+              <el-icon><FolderOpened /></el-icon>
+            </el-button>
+            <el-button size="small" @click="fetchLocalFiles(localCurrentPath)">
+              <el-icon><Refresh /></el-icon>
+            </el-button>
+          </div>
+        </div>
+        <el-table :data="localFileList" v-loading="localFileLoading" size="small" height="400" style="width: 100%;" @row-dblclick="localNavigate">
+          <el-table-column width="30">
+            <template #default="scope">
+              <el-icon v-if="scope.row.isDir"><FolderOpened /></el-icon>
+              <el-icon v-else><Document /></el-icon>
+            </template>
+          </el-table-column>
+          <el-table-column prop="name" :label="$t('common.name')" show-overflow-tooltip />
+          <el-table-column :label="$t('common.size')" width="100" align="right">
+            <template #default="scope">
+              {{ scope.row.isDir ? '-' : formatFileSize(scope.row.size) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </div>
+  </el-dialog>
+
+  <!-- 下载云机文件对话框 -->
+  <el-dialog v-model="downloadCloudFileDialogVisible" :title="$t('common.download')" width="450px" :close-on-click-modal="false">
+    <el-form label-width="100px">
+      <el-form-item :label="$t('common.name')">
+        <span>{{ downloadFileInfo.name }}</span>
+      </el-form-item>
+      <el-form-item :label="$t('cloudMachine.savePath')">
+        <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+          <el-input v-model="localCurrentPath" size="small" readonly style="flex: 1;" />
+          <el-button size="small" @click="localSelectDirectory">
+            <el-icon><FolderOpened /></el-icon>
+          </el-button>
+        </div>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="downloadCloudFileDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+      <el-button type="primary" @click="submitDownloadCloudFile" :loading="downloadCloudFileLoading">{{ $t('common.confirm') }}</el-button>
     </template>
   </el-dialog>
 
@@ -25275,6 +25551,32 @@ el-icon.is-loading {
   color: #606266;
 }
 
+/* 文件管理器 */
+.file-manager-container {
+  display: flex;
+  gap: 16px;
+  min-height: 460px;
+}
+
+.file-panel {
+  flex: 1;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.file-panel-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid #ebeef5;
+  background: #f5f7fa;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
 /* 右键菜单样式 */
 .context-menu {
   position: fixed;
@@ -25347,10 +25649,6 @@ el-icon.is-loading {
 }
 
 /* 设备选择对话框样式 */
-.device-selection-container {
-  /* 移除容器的滚动条，使用 table 自身的滚动控制 */
-}
-
 .device-selection-table {
   width: 100%;
 }

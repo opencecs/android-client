@@ -13,6 +13,146 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// ---- 现代 IFileOpenDialog 文件夹选择器 (Vista+) ----
+
+var (
+	ole32  = windows.NewLazySystemDLL("ole32.dll")
+	shell  = windows.NewLazySystemDLL("shell32.dll")
+
+	procCoInitializeEx          = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize          = ole32.NewProc("CoUninitialize")
+	procCoCreateInstance        = ole32.NewProc("CoCreateInstance")
+	procSHCreateItemFromParsing = shell.NewProc("SHCreateItemFromParsingName")
+	procCoTaskMemFree           = ole32.NewProc("CoTaskMemFree")
+)
+
+// COM IIDs
+var (
+	clsidFileOpenDialog = windows.GUID{Data1: 0xDC1C5A9C, Data2: 0xE88A, Data3: 0x4dde, Data4: [8]byte{0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7}}
+	iidIFileOpenDialog  = windows.GUID{Data1: 0xD57C7288, Data2: 0xD4AD, Data3: 0x4768, Data4: [8]byte{0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}}
+	iidIShellItem       = windows.GUID{Data1: 0x43826D1E, Data2: 0xE718, Data3: 0x42EE, Data4: [8]byte{0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE}}
+)
+
+const (
+	FOS_PICKFOLDERS     = 0x00000020
+	FOS_FORCEFILESYSTEM = 0x00000040
+	SIGDN_FILESYSPATH   = 0x80058000
+	COINIT_APARTMENTTHREADED = 0x2
+	ERROR_CANCELLED     = 0x800704C7
+)
+
+// IFileOpenDialog vtable offsets
+// IUnknown(3): QueryInterface,AddRef,Release
+// IModalWindow(1): Show
+// IFileDialog: SetFileTypes,SetFileTypeIndex,GetFileTypeIndex,Advise,Unadvise,SetOptions,GetOptions,SetDefaultFolder,SetFolder,GetFolder,GetCurrentSelection,SetFileName,GetFileName,SetTitle,SetOkButtonLabel,SetFileNameLabel,GetResult,AddPlace,SetDefaultExtension,Close,SetClientGuid,ClearClientData,SetFilter
+const (
+	vtblShow             = 3  // IModalWindow::Show
+	vtblSetOptions       = 9  // IFileDialog::SetOptions
+	vtblSetDefaultFolder = 11 // IFileDialog::SetDefaultFolder
+	vtblSetTitle         = 17 // IFileDialog::SetTitle
+	vtblGetResult        = 20 // IFileDialog::GetResult
+)
+
+// IShellItem vtable offsets
+// IUnknown(3): QueryInterface,AddRef,Release
+// IShellItem: BindToHandler,GetParent,GetDisplayName,GetAttributes,Compare
+const (
+	siVtblGetDisplayName = 5 // IShellItem::GetDisplayName
+)
+
+// IUnknown::Release vtable offset
+const vtblRelease = 2
+
+// comRelease 调用IUnknown::Release释放COM对象
+func comRelease(obj uintptr) {
+	if obj == 0 {
+		return
+	}
+	vtbl := *(*uintptr)(unsafe.Pointer(obj))
+	release := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(vtblRelease)*unsafe.Sizeof(uintptr(0))))
+	syscall.Syscall(release, 1, obj, 0, 0)
+}
+
+func pickFolderWindows(startPath string) (string, error) {
+	// 初始化COM
+	procCoInitializeEx.Call(0, COINIT_APARTMENTTHREADED)
+	defer procCoUninitialize.Call()
+
+	// 创建 IFileOpenDialog 实例
+	var dialog uintptr
+	hr, _, _ := procCoCreateInstance.Call(
+		uintptr(unsafe.Pointer(&clsidFileOpenDialog)),
+		0,
+		1|4, // CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER
+		uintptr(unsafe.Pointer(&iidIFileOpenDialog)),
+		uintptr(unsafe.Pointer(&dialog)),
+	)
+	if hr != 0 || dialog == 0 {
+		return "", fmt.Errorf("CoCreateInstance failed: 0x%08X", hr)
+	}
+	defer comRelease(dialog)
+
+	vtbl := *(*uintptr)(unsafe.Pointer(dialog))
+
+	// SetOptions: FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM
+	setOptions := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(vtblSetOptions)*unsafe.Sizeof(uintptr(0))))
+	_, _, _ = syscall.Syscall(setOptions, 2, dialog, FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM, 0)
+
+	// SetTitle
+	setTitle := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(vtblSetTitle)*unsafe.Sizeof(uintptr(0))))
+	titlePtr, _ := windows.UTF16PtrFromString("请选择文件夹")
+	syscall.Syscall(setTitle, 2, dialog, uintptr(unsafe.Pointer(titlePtr)), 0)
+
+	// SetDefaultFolder (if startPath provided)
+	if startPath != "" {
+		var shellItem uintptr
+		pathPtr, _ := windows.UTF16PtrFromString(startPath)
+		hr2, _, _ := procSHCreateItemFromParsing.Call(
+			uintptr(unsafe.Pointer(pathPtr)),
+			0,
+			uintptr(unsafe.Pointer(&iidIShellItem)),
+			uintptr(unsafe.Pointer(&shellItem)),
+		)
+		if hr2 == 0 && shellItem != 0 {
+			setDefaultFolder := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(vtblSetDefaultFolder)*unsafe.Sizeof(uintptr(0))))
+			syscall.Syscall(setDefaultFolder, 2, dialog, shellItem, 0)
+			comRelease(shellItem)
+		}
+	}
+
+	// Show
+	show := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(vtblShow)*unsafe.Sizeof(uintptr(0))))
+	hr3, _, _ := syscall.Syscall(show, 2, dialog, 0, 0)
+	if hr3 != 0 {
+		if hr3 == ERROR_CANCELLED {
+			return "", fmt.Errorf("用户取消选择")
+		}
+		return "", fmt.Errorf("对话框显示失败: 0x%08X", hr3)
+	}
+
+	// GetResult
+	var resultItem uintptr
+	getResult := *(*uintptr)(unsafe.Pointer(vtbl + uintptr(vtblGetResult)*unsafe.Sizeof(uintptr(0))))
+	hr4, _, _ := syscall.Syscall(getResult, 2, dialog, uintptr(unsafe.Pointer(&resultItem)), 0)
+	if hr4 != 0 || resultItem == 0 {
+		return "", fmt.Errorf("获取选择结果失败")
+	}
+	defer comRelease(resultItem)
+
+	// IShellItem::GetDisplayName
+	siVtbl := *(*uintptr)(unsafe.Pointer(resultItem))
+	getDisplayName := *(*uintptr)(unsafe.Pointer(siVtbl + uintptr(siVtblGetDisplayName)*unsafe.Sizeof(uintptr(0))))
+	var namePtr uintptr
+	syscall.Syscall(getDisplayName, 3, resultItem, SIGDN_FILESYSPATH, uintptr(unsafe.Pointer(&namePtr)))
+	if namePtr == 0 {
+		return "", fmt.Errorf("获取路径名失败")
+	}
+	defer procCoTaskMemFree.Call(namePtr)
+
+	selectedPath := windows.UTF16PtrToString((*uint16)(unsafe.Pointer(namePtr)))
+	return selectedPath, nil
+}
+
 // openFileDialog 通用文件选择对话框（Windows特定实现）
 func openFileDialog(title, filterName, filterPattern string) map[string]interface{} {
 	psScript := fmt.Sprintf(`

@@ -294,7 +294,7 @@ const loadSharedDirPath = async () => {
 const handleSelectSharedDir = async () => {
   sharedDirLoading.value = true;
   try {
-    const result = await SelectDirectory();
+    const result = await SelectDirectory('');
     if (result && result.success && result.path) {
       // 保存路径
       const saveResult = await SetSharedDirPath(result.path);

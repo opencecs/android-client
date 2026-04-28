@@ -162,6 +162,87 @@
                     </div>
                 </el-tab-pane>
 
+                <!-- 备份管理 -->
+                <el-tab-pane :label="t('backup.cloudManage')" name="cloud-manage">
+                    <div class="tab-content">
+                        <div class="left-panel">
+                            <div class="panel-header"
+                                style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>{{ t('backup.deviceList') }}</span>
+                                <el-select v-model="localGroupFilter" size="small" style="width: 90px;"
+                                    :placeholder="t('backup.group')">
+                                    <el-option :label="t('backup.all')" value="全部"></el-option>
+                                    <el-option v-for="group in deviceGroups" :key="group" :label="group"
+                                        :value="group"></el-option>
+                                </el-select>
+                            </div>
+                            <div class="device-list">
+                                <div v-for="device in deviceList" :key="device.ip"
+                                    :class="['device-item', { active: selectedDeviceIP === device.ip }]"
+                                    @click="selectDevice(device)">
+                                    <span class="device-ip">{{ device.ip }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="right-panel">
+                            <div class="panel-header"
+                                style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span>{{ t('backup.cloudManageList') }}</span>
+                                    <el-select v-model="cloudManageSlot" size="small" style="width: 100px;"
+                                        @change="fetchCloudMachines">
+                                        <el-option v-for="s in cloudManageSlotOptions" :key="s" :label="t('common.slot') + ' ' + s" :value="s" />
+                                    </el-select>
+                                </div>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <el-button size="small" @click="fetchCloudMachines">{{ t('common.refresh') }}</el-button>
+                                    <el-button size="small" type="danger" :disabled="!cloudManageSelectedRows.length" @click="handleBatchDeleteCloudMachine">
+                                        {{ t('common.deleteSelected') }}<span v-if="cloudManageSelectedRows.length">({{ cloudManageSelectedRows.length }})</span>
+                                    </el-button>
+                                </div>
+                            </div>
+                            <el-table :data="cloudMachineList" v-loading="cloudManageLoading" stripe
+                                max-height="800" style="width: 100%;"
+                                @selection-change="handleCloudManageSelectionChange">
+                                <el-table-column type="selection" width="45" />
+                                <el-table-column :label="t('backup.machineName')" align="center" show-overflow-tooltip>
+                                    <template #default="scope">
+                                        {{ formatCloudMachineName(scope.row.name) }}
+                                    </template>
+                                </el-table-column>
+                                <el-table-column :label="t('common.systemImage')" align="center" show-overflow-tooltip>
+                                    <template #default="scope">
+                                        <span :title="scope.row.image || ''">{{ formatCloudMachineImage(scope.row.image) }}</span>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column :label="t('common.statusLabel')" align="center" width="90">
+                                    <template #default="scope">
+                                        <el-tag v-if="cloudStartingName === scope.row.name" type="warning" size="small">
+                                            {{ t('backup.starting') }}
+                                        </el-tag>
+                                        <el-tag v-else :type="scope.row.status === 'running' ? 'success' : 'info'" size="small">
+                                            {{ scope.row.status === 'running' ? t('common.running') : t('common.shutdown') }}
+                                        </el-tag>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column :label="t('backup.operation')" align="center" width="280">
+                                    <template #default="scope">
+                                        <el-button v-if="scope.row.status !== 'running'" size="mini" type="success"
+                                            :loading="cloudStartingName === scope.row.name"
+                                            @click="handleCloudMachineStart(scope.row)">{{ t('backup.powerOn') }}</el-button>
+                                        <el-button v-else size="mini" type="warning"
+                                            @click="handleCloudMachineStop(scope.row)">{{ t('backup.powerOff') }}</el-button>
+                                        <el-button size="mini" type="primary"
+                                            @click="handleCloudMachineRename(scope.row)">{{ t('backup.rename') }}</el-button>
+                                        <el-button size="mini" type="danger"
+                                            @click="handleCloudMachineDelete(scope.row)">{{ t('backup.delete') }}</el-button>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </div>
+                    </div>
+                </el-tab-pane>
+
                 <!-- 批量导入 -->
                 <el-tab-pane :label="$t('backup.batchImport')" name="batch-import">
                     <BatchImportContent 
@@ -234,6 +315,28 @@
                                     </div>
                                 </el-collapse-item>
 
+                                <!-- 备份管理 -->
+                                <el-collapse-item name="cloud-manage-help" style="margin-bottom: 8px;">
+                                    <template #title>
+                                        <span style="font-weight: 600; color: #303133; font-size: 13px;">🖥️ 备份管理</span>
+                                    </template>
+                                    <div style="font-size: 13px; line-height: 1.8; color: #606266; padding: 8px 12px;">
+                                        <p>用于按坑位管理和操作设备上的云机实例，支持开机、关机、删除、修改名称等操作。</p>
+                                        <ul style="margin: 6px 0; padding-left: 20px;">
+                                            <li><strong>选择设备</strong>：在左侧设备列表中点击选择目标设备，右侧将显示该设备上的云机列表。</li>
+                                            <li><strong>切换坑位</strong>：通过右侧顶部的坑位下拉框，切换查看不同坑位下的云机。P1设备支持24个坑位，其他设备支持12个坑位。</li>
+                                            <li><strong>开机</strong>：点击"开机"按钮启动已关闭的云机。云机状态显示为"离线"时才可操作开机。</li>
+                                            <li><strong>关机</strong>：点击"关机"按钮关闭正在运行的云机，操作前会弹出确认提示。请确保已保存云机中的重要数据。</li>
+                                            <li><strong>修改名称</strong>：点击"修改名称"按钮，在弹出框中输入新名称后确认即可重命名云机。</li>
+                                            <li><strong>删除</strong>：点击"删除"按钮将永久删除该云机，操作前会弹出确认提示，此操作不可恢复，请谨慎操作。</li>
+                                            <li><strong>批量删除</strong>：勾选多个云机后，点击"删除选中"按钮可批量删除，操作前会弹出确认提示。</li>
+                                        </ul>
+                                        <div style="margin-top: 8px; padding: 6px 10px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; color: #d46b08;">
+                                            ⚠️ 注意：删除和关机操作不可撤销，请在操作前确认。批量删除会逐个执行，请耐心等待。
+                                        </div>
+                                    </div>
+                                </el-collapse-item>
+
                             </el-collapse>
                         </div>
                     </div>
@@ -298,6 +401,28 @@
                                     </div>
                                 </el-collapse-item>
 
+                                <!-- Cloud Manage -->
+                                <el-collapse-item name="cloud-manage-help" style="margin-bottom: 8px;">
+                                    <template #title>
+                                        <span style="font-weight: 600; color: #303133; font-size: 13px;">🖥️ Cloud Manage</span>
+                                    </template>
+                                    <div style="font-size: 13px; line-height: 1.8; color: #606266; padding: 8px 12px;">
+                                        <p>Manage and operate cloud machine instances by slot on devices. Supports power on/off, delete, and rename operations.</p>
+                                        <ul style="margin: 6px 0; padding-left: 20px;">
+                                            <li><strong>Select Device</strong>: Click a device in the left panel to view its machines on the right.</li>
+                                            <li><strong>Switch Slot</strong>: Use the slot dropdown at the top right to view machines in different slots. P1 devices support 24 slots, others support 12 slots.</li>
+                                            <li><strong>Power On</strong>: Click "Power On" to start a stopped machine. Only available when the machine status is "Offline".</li>
+                                            <li><strong>Power Off</strong>: Click "Power Off" to stop a running machine. A confirmation prompt will appear before the operation.</li>
+                                            <li><strong>Rename</strong>: Click "Rename" to change the machine name. Enter the new name in the dialog and confirm.</li>
+                                            <li><strong>Delete</strong>: Click "Delete" to permanently remove a machine. A confirmation prompt will appear. This action cannot be undone.</li>
+                                            <li><strong>Batch Delete</strong>: Select multiple machines, then click "Delete Selected" to batch delete. A confirmation prompt will appear.</li>
+                                        </ul>
+                                        <div style="margin-top: 8px; padding: 6px 10px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; color: #d46b08;">
+                                            ⚠️ Note: Delete and power off operations cannot be undone. Please confirm before proceeding. Batch delete is executed one by one, please be patient.
+                                        </div>
+                                    </div>
+                                </el-collapse-item>
+
                             </el-collapse>
                         </div>
                     </div>
@@ -305,6 +430,21 @@
                 </el-tab-pane>
             </el-tabs>
         </div>
+
+        <el-dialog v-model="cloudRenameDialogVisible" :title="t('backup.rename')" width="400px" :close-on-click-modal="false">
+            <el-form label-width="80px">
+                <el-form-item :label="t('backup.machineName')">
+                    <el-input v-model="cloudRenameOldName" disabled />
+                </el-form-item>
+                <el-form-item :label="t('backup.newName')">
+                    <el-input v-model="cloudRenameNewName" :placeholder="t('backup.enterNewName')" />
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="cloudRenameDialogVisible = false">{{ t('backup.cancel') }}</el-button>
+                <el-button type="primary" @click="submitCloudRename" :disabled="!cloudRenameNewName.trim()" :loading="cloudRenameLoading">{{ t('backup.confirm') }}</el-button>
+            </template>
+        </el-dialog>
 
         <el-dialog v-model="addDialogVisible" :title="t('backup.addBackupModel')" width="40%" :close-on-click-modal="false">
             <el-form label-width="100px">
@@ -439,8 +579,8 @@ const getDeviceAddr = (ip) => {
 
 import { ref, onMounted, computed, watch, getCurrentInstance, nextTick } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Refresh, Search, Plus, InfoFilled } from '@element-plus/icons-vue';
-import { ExportBackupModel, CheckBackupModelExists, GetAllBackupModels, ImportBackupModel, DeleteBackupModel, DownloadBackupMachine, CheckBackupMachineFileExists, CheckBackupMachineFilesExistBatch, ImportBackupMachine, DeleteLocalBackupMachine, OpenBackupModelDir, OpenBackupMachineDir } from '../../bindings/edgeclient/app';
+import { Search, Plus, InfoFilled } from '@element-plus/icons-vue';
+import { ExportBackupModel, CheckBackupModelExists, GetAllBackupModels, ImportBackupModel, DeleteBackupModel, DownloadBackupMachine, CheckBackupMachineFileExists, CheckBackupMachineFilesExistBatch, ImportBackupMachine, DeleteLocalBackupMachine, OpenBackupModelDir, OpenBackupMachineDir, GetMirrorList } from '../../bindings/edgeclient/app';
 import BatchImportContent from './BatchImport.vue';
 
 // 国际化支持
@@ -462,7 +602,7 @@ const t = (key, params) => {
 }
 
 const activeTab = ref('model');
-const activeHelpSections = ref(['backup-model', 'backup-machine', 'batch-import-help']);
+const activeHelpSections = ref(['backup-model', 'backup-machine', 'batch-import-help', 'cloud-manage-help']);
 const loading = ref(false);
 const selectedDeviceIP = ref('')
 const selectedDeviceVersion = ref('v3')
@@ -515,6 +655,72 @@ const importBackupSlot = ref(1)
 const importBackupMachineName = ref('')
 const importBackupSlotList = ref([])
 const importBackupLoading = ref(false)
+
+// 备份管理 - 云机管理
+const cloudImageList = ref([])
+
+const loadCloudImageList = async () => {
+    try {
+        const saved = localStorage.getItem('mytos_image_list')
+        if (saved) {
+            cloudImageList.value = JSON.parse(saved)
+        }
+        const response = await GetMirrorList()
+        if (response.code === '200' && response.data && Array.isArray(response.data)) {
+            const sorted = [...response.data].sort((a, b) => (parseInt(b.id) || 0) - (parseInt(a.id) || 0))
+            cloudImageList.value = sorted
+            localStorage.setItem('mytos_image_list', JSON.stringify(sorted))
+        }
+    } catch (e) {
+        console.error('加载镜像列表失败:', e)
+    }
+}
+
+const formatCloudMachineName = (name) => {
+    if (!name) return name
+    const match = name.match(/^.+_\d+_(.+)$/)
+    if (match && match.length > 1) return match[1]
+    return name
+}
+
+const formatCloudMachineImage = (imageUrl) => {
+    if (!imageUrl) return ''
+    const cleanedUrl = imageUrl.toLowerCase()
+
+    // 从镜像列表中匹配友好名称
+    let matched = cloudImageList.value.find(img => img.url && img.url.toLowerCase() === cleanedUrl)
+    if (matched) return matched.name || matched.url
+
+    matched = cloudImageList.value.find(img => img.url && cleanedUrl.includes(img.url.toLowerCase()))
+    if (matched) return matched.name || matched.url
+
+    matched = cloudImageList.value.find(img => img.url && img.url.toLowerCase().includes(cleanedUrl))
+    if (matched) return matched.name || matched.url
+
+    const urlParts = cleanedUrl.split('/')
+    const urlNamePart = urlParts[urlParts.length - 1]
+    matched = cloudImageList.value.find(img => img.name && img.name.toLowerCase().includes(urlNamePart))
+    if (matched) return matched.name || matched.url
+
+    // fallback: 从URL中提取
+    if (imageUrl.includes('\\') || imageUrl.endsWith('.tar.gz')) {
+        const parts = imageUrl.split(/[\\/]/)
+        return parts[parts.length - 1].replace('.tar.gz', '').replace('.tar', '')
+    }
+    return urlNamePart || imageUrl
+}
+
+const cloudMachineList = ref([])
+const cloudManageLoading = ref(false)
+const cloudStartingName = ref('')
+const cloudManageSlot = ref(1)
+const cloudManageSlotOptions = ref([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+const cloudManageSelectedRows = ref([])
+const cloudRenameDialogVisible = ref(false)
+const cloudRenameOldName = ref('')
+const cloudRenameFullName = ref('')
+const cloudRenameNewName = ref('')
+const cloudRenameLoading = ref(false)
 
 const props = defineProps({
     devices: {
@@ -795,6 +1001,230 @@ const handleConfirmAdd = async () => {
     }
 }
 
+// 备份管理 - 云机管理
+const fetchCloudMachines = async () => {
+    if (!selectedDeviceIP.value) {
+        cloudMachineList.value = []
+        return
+    }
+    const selectedDevice = props.devices.find(d => d.ip === selectedDeviceIP.value)
+    if (!selectedDevice || props.devicesStatusCache.get(selectedDevice.id) !== 'online') {
+        cloudMachineList.value = []
+        return
+    }
+    // 首次加载镜像列表
+    if (cloudImageList.value.length === 0) {
+        loadCloudImageList()
+    }
+    // 根据设备类型设置坑位范围
+    const isP1V3 = selectedDevice.version == 'v3' && selectedDevice.name?.toLowerCase()?.includes('p1')
+    const maxSlot = isP1V3 ? 24 : 12
+    cloudManageSlotOptions.value = Array.from({ length: maxSlot }, (_, i) => i + 1)
+    if (cloudManageSlot.value > maxSlot) cloudManageSlot.value = 1
+
+    cloudManageLoading.value = true
+    try {
+        const response = await fetchWithTimeout(
+            `http://${getDeviceAddr(selectedDeviceIP.value)}/android?name=&running=false&indexNum=${cloudManageSlot.value}`,
+            { headers: getAuthHeaders(selectedDeviceIP.value) }
+        )
+        if (response.ok) {
+            const data = await response.json()
+            if (data.code == 0) {
+                cloudMachineList.value = (data.data.list || []).filter(item => item.androidType !== 'V2')
+            } else {
+                ElMessage.error(data.message || '获取云机列表失败')
+            }
+        } else {
+            ElMessage.error('获取云机列表失败')
+        }
+    } catch (error) {
+        ElMessage.error('获取云机列表失败，请检查网络连接')
+    } finally {
+        cloudManageLoading.value = false
+    }
+}
+
+const handleCloudManageSelectionChange = (selection) => {
+    cloudManageSelectedRows.value = selection
+}
+
+const handleCloudMachineStart = async (row) => {
+    cloudStartingName.value = row.name
+    try {
+        // 先关掉当前坑位下所有运行中的云机
+        const runningMachines = cloudMachineList.value.filter(m => m.status === 'running' && m.name !== row.name)
+        if (runningMachines.length > 0) {
+            for (const m of runningMachines) {
+                try {
+                    await fetchWithTimeout(
+                        `http://${getDeviceAddr(selectedDeviceIP.value)}/android/stop`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', ...getAuthHeaders(selectedDeviceIP.value) },
+                            body: JSON.stringify({ name: m.name })
+                        },
+                        30000
+                    )
+                } catch (e) { /* ignore */ }
+            }
+            await new Promise(r => setTimeout(r, 2000))
+        }
+
+        // 开机目标云机
+        const response = await fetchWithTimeout(
+            `http://${getDeviceAddr(selectedDeviceIP.value)}/android/start`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders(selectedDeviceIP.value) },
+                body: JSON.stringify({ name: row.name })
+            },
+            30000
+        )
+        const data = await response.json()
+        if (data.code == 0) {
+            ElMessage.success(t('backup.powerOnSuccess'))
+            await fetchCloudMachines()
+        } else {
+            const msg = data.message || t('backup.powerOnFail')
+            if (msg.length > 50) {
+                ElMessageBox.alert(msg, t('backup.powerOnFail'), { type: 'error', confirmButtonText: t('backup.confirm') })
+            } else {
+                ElMessage.error(msg)
+            }
+        }
+    } catch (error) {
+        ElMessage.error(t('backup.powerOnFail'))
+    } finally {
+        cloudStartingName.value = ''
+    }
+}
+
+const handleCloudMachineStop = async (row) => {
+    try {
+        await ElMessageBox.confirm(
+            t('backup.confirmPowerOff', { name: row.name }),
+            t('backup.confirm'),
+            { confirmButtonText: t('backup.confirm'), cancelButtonText: t('backup.cancel'), type: 'warning' }
+        )
+    } catch { return }
+
+    try {
+        const response = await fetchWithTimeout(
+            `http://${getDeviceAddr(selectedDeviceIP.value)}/android/stop`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders(selectedDeviceIP.value) },
+                body: JSON.stringify({ name: row.name })
+            },
+            30000
+        )
+        const data = await response.json()
+        if (data.code == 0) {
+            ElMessage.success(t('backup.powerOffSuccess'))
+            await fetchCloudMachines()
+        } else {
+            ElMessage.warning(data.message || t('backup.powerOffFail'))
+        }
+    } catch (error) {
+        ElMessage.error(t('backup.powerOffFail'))
+    }
+}
+
+const handleCloudMachineDelete = async (row) => {
+    try {
+        await ElMessageBox.confirm(
+            t('backup.confirmDeleteMachine', { name: row.name }),
+            t('backup.confirm'),
+            { confirmButtonText: t('backup.confirm'), cancelButtonText: t('backup.cancel'), type: 'warning' }
+        )
+    } catch { return }
+
+    try {
+        const response = await fetchWithTimeout(
+            `http://${getDeviceAddr(selectedDeviceIP.value)}/android?name=${encodeURIComponent(row.name)}`,
+            { method: 'DELETE', headers: getAuthHeaders(selectedDeviceIP.value) }
+        )
+        const data = await response.json()
+        if (data.code == 0) {
+            ElMessage.success(t('backup.deleteSuccess'))
+            await fetchCloudMachines()
+        } else {
+            ElMessage.warning(data.message || t('backup.deleteFail'))
+        }
+    } catch (error) {
+        ElMessage.error(t('backup.deleteFail'))
+    }
+}
+
+const handleCloudMachineRename = (row) => {
+    cloudRenameOldName.value = formatCloudMachineName(row.name)
+    cloudRenameFullName.value = row.name
+    cloudRenameNewName.value = ''
+    cloudRenameDialogVisible.value = true
+}
+
+const submitCloudRename = async () => {
+    if (!cloudRenameNewName.value.trim()) return
+    cloudRenameLoading.value = true
+    try {
+        const response = await fetchWithTimeout(
+            `http://${getDeviceAddr(selectedDeviceIP.value)}/android/rename`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders(selectedDeviceIP.value) },
+                body: JSON.stringify({ name: cloudRenameFullName.value, newName: cloudRenameNewName.value.trim() })
+            },
+            10000
+        )
+        const data = await response.json()
+        if (data.code == 0) {
+            ElMessage.success(t('backup.renameSuccess'))
+            cloudRenameDialogVisible.value = false
+            await fetchCloudMachines()
+        } else {
+            ElMessage.warning(data.message || t('backup.renameFail'))
+        }
+    } catch (error) {
+        ElMessage.error(t('backup.renameFail'))
+    } finally {
+        cloudRenameLoading.value = false
+    }
+}
+
+const handleBatchDeleteCloudMachine = async () => {
+    if (!cloudManageSelectedRows.value.length) return
+    try {
+        await ElMessageBox.confirm(
+            t('backup.confirmBatchDelete', { count: cloudManageSelectedRows.value.length }),
+            t('backup.confirm'),
+            { confirmButtonText: t('backup.confirm'), cancelButtonText: t('backup.cancel'), type: 'warning' }
+        )
+    } catch { return }
+
+    cloudManageLoading.value = true
+    let successCount = 0
+    let failCount = 0
+    for (const row of cloudManageSelectedRows.value) {
+        try {
+            const response = await fetchWithTimeout(
+                `http://${getDeviceAddr(selectedDeviceIP.value)}/android?name=${encodeURIComponent(row.name)}`,
+                { method: 'DELETE', headers: getAuthHeaders(selectedDeviceIP.value) }
+            )
+            const data = await response.json()
+            if (data.code == 0) successCount++
+            else failCount++
+        } catch { failCount++ }
+    }
+    cloudManageLoading.value = false
+    if (failCount === 0) {
+        ElMessage.success(t('backup.batchDeleteSuccess', { count: successCount }))
+    } else {
+        ElMessage.warning(t('backup.batchDeleteResult', { success: successCount, fail: failCount }))
+    }
+    await fetchCloudMachines()
+}
+
 const selectDevice = async (device) => {
     selectedDeviceIP.value = device.ip
     selectedDeviceVersion.value = device.version || 'v3'
@@ -804,6 +1234,9 @@ const selectDevice = async (device) => {
     const tasks = [fetchBackupModels(), fetchLocalBackupModels()]
     if (activeTab.value === 'machine') {
         tasks.push(fetchBackupMachines())
+    }
+    if (activeTab.value === 'cloud-manage') {
+        tasks.push(fetchCloudMachines())
     }
     await Promise.all(tasks)
 }
@@ -961,6 +1394,10 @@ const handleTabChange = async (tab) => {
         try {
             if (tab === 'model') {
                 await fetchBackupModels();
+                backupMachineList.value = [];
+            } else if (tab === 'cloud-manage') {
+                await fetchCloudMachines();
+                backupModelList.value = [];
                 backupMachineList.value = [];
             } else {
                 await fetchBackupMachines();
@@ -1227,6 +1664,7 @@ const fetchBackups = async () => {
             selectedDeviceIP.value = ''
             backupModelList.value = []
             backupMachineList.value = []
+            cloudMachineList.value = []
         }
     }
     // 没有选中设备时，自动选中第一台在线设备
@@ -1238,6 +1676,9 @@ const fetchBackups = async () => {
     const tasks = [fetchBackupModels(), fetchLocalBackupModels()]
     if (activeTab.value === 'machine') {
         tasks.push(fetchBackupMachines())
+    }
+    if (activeTab.value === 'cloud-manage') {
+        tasks.push(fetchCloudMachines())
     }
     await Promise.all(tasks)
 
@@ -1254,6 +1695,7 @@ watch(deviceList, (newList) => {
         selectedDeviceIP.value = ''
         backupModelList.value = []
         backupMachineList.value = []
+        cloudMachineList.value = []
     }
     // 若没有选中设备，自动选中第一台在线设备
     if (!selectedDeviceIP.value && newList.length > 0) {
@@ -1281,7 +1723,10 @@ defineExpose({
 
 :deep(.el-table .cell) {
     display: block;
+    white-space: nowrap;
 }
+
+
 
 .backup-tabs {
     height: 100%;
@@ -1385,10 +1830,7 @@ defineExpose({
 
 .machine-content {
     display: flex;
-    /* justify-content: center; */
-    /* align-items: center; */
     gap: 16px;
     height: 100%;
-    /* padding: 40px; */
 }
 </style>

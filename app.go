@@ -85,6 +85,7 @@ type DeviceStatus struct {
 	LastSuccessLatency   int64     `json:"lastSuccessLatency"` // 最近一次成功的延迟（毫秒）- 失败时显示此值
 	LastAPICheckTime     time.Time `json:"-"`                  // 上次API版本检查时间（用于60秒间隔控制）
 	LastStorageCheckTime time.Time `json:"-"`                  // 上次存储查询时间（用于60秒间隔控制）
+	LastHTTPVerifyTime   time.Time `json:"-"`                  // 上次HTTP验证时间（在线设备降频验证）
 }
 
 // App struct - V3 Service
@@ -1540,7 +1541,7 @@ func NewApp() *App {
 	
 	transport := &http.Transport{
 		// 连接池配置 - 支持大规模设备
-		MaxIdleConns:        10000,            // 全局最大空闲连接数 (支持5000台设备×2个接口)
+		MaxIdleConns:        500,            // 全局最大空闲连接数 (支持5000台设备×2个接口)
 		MaxIdleConnsPerHost: 2,                // 每设备保持2个连接 (心跳+存储并发)
 		MaxConnsPerHost:     5,                // 每设备最大并发连接数 (防止单设备占用过多)
 		IdleConnTimeout:     120 * time.Second, // 空闲连接保持2分钟 (覆盖多轮查询)
@@ -5066,41 +5067,141 @@ func (a *App) SetStoragePath(path string) map[string]interface{} {
 	return map[string]interface{}{"success": true, "message": "保存路径成功", "path": path}
 }
 
-// SelectDirectory 打开目录选择对话框（IPC）
-func (a *App) SelectDirectory() map[string]interface{} {
-	log.Printf("[IPC] 收到 SelectDirectory 调用")
-	if runtime.GOOS != "windows" {
-		return map[string]interface{}{"success": false, "message": "仅支持 Windows 平台"}
+// ListLocalDirFiles 列出本地目录文件（IPC）
+func (a *App) ListLocalDirFiles(dirPath string) map[string]interface{} {
+	log.Printf("[IPC] 收到 ListLocalDirFiles 调用: %s", dirPath)
+
+	if dirPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			dirPath = "C:\\"
+		} else {
+			dirPath = home
+		}
 	}
-	psScript := `
-Add-Type -AssemblyName System.Windows.Forms
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = "请选择文件保存路径"
-$dialog.ShowNewFolderButton = $true
-$result = $dialog.ShowDialog()
-if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)
-    [Convert]::ToBase64String($bytes)
-}
-`
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	output, err := cmd.Output()
+
+	info, err := os.Stat(dirPath)
 	if err != nil {
-		log.Printf("[SelectDirectory] 打开目录选择对话框失败: %v", err)
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("目录不存在: %v", err)}
+	}
+	if !info.IsDir() {
+		return map[string]interface{}{"success": false, "message": "路径不是目录"}
+	}
+
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("读取目录失败: %v", err)}
+	}
+
+	type fileItem struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+		IsDir   bool   `json:"isDir"`
+		Size    int64  `json:"size"`
+	}
+
+	var files []fileItem
+	for _, entry := range entries {
+		fi, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		fullPath := filepath.Join(dirPath, entry.Name())
+		files = append(files, fileItem{
+			Name:  entry.Name(),
+			Path:  fullPath,
+			IsDir: entry.IsDir(),
+			Size:  fi.Size(),
+		})
+	}
+
+	parent := ""
+	if dirPath != "/" && dirPath != "" {
+		parent = filepath.Dir(dirPath)
+	}
+
+	return map[string]interface{}{
+		"success":  true,
+		"path":     dirPath,
+		"parent":   parent,
+		"files":    files,
+	}
+}
+
+// DownloadCloudFile 从云机下载文件到本地Windows目录
+func (a *App) DownloadCloudFile(downloadURL string, saveDir string) map[string]interface{} {
+	log.Printf("[IPC] DownloadCloudFile: url=%s, saveDir=%s", downloadURL, saveDir)
+
+	if downloadURL == "" || saveDir == "" {
+		return map[string]interface{}{"success": false, "message": "参数不完整"}
+	}
+
+	// 确保保存目录存在
+	if err := os.MkdirAll(saveDir, 0755); err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("创建保存目录失败: %v", err)}
+	}
+
+	// 从URL提取文件名并URL解码
+	urlPath := downloadURL
+	if idx := strings.Index(downloadURL, "?path="); idx != -1 {
+		urlPath = downloadURL[idx+6:]
+	}
+	decodedPath, err := url.QueryUnescape(urlPath)
+	if err != nil {
+		decodedPath = urlPath
+	}
+	fileName := filepath.Base(decodedPath)
+	if fileName == "" || fileName == "." || fileName == "/" {
+		fileName = "download_file"
+	}
+	savePath := filepath.Join(saveDir, fileName)
+
+	// 下载文件
+	client := &http.Client{Timeout: 30 * time.Minute}
+	resp, err := client.Get(downloadURL)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("下载失败: %v", err)}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("下载失败，HTTP状态码: %d", resp.StatusCode)}
+	}
+
+	f, err := os.Create(savePath)
+	if err != nil {
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("创建本地文件失败: %v", err)}
+	}
+	defer f.Close()
+
+	written, err := io.Copy(f, resp.Body)
+	if err != nil {
+		os.Remove(savePath)
+		return map[string]interface{}{"success": false, "message": fmt.Sprintf("写入文件失败: %v", err)}
+	}
+
+	log.Printf("[IPC] 下载完成: %s (%d bytes)", savePath, written)
+	return map[string]interface{}{
+		"success":  true,
+		"message":  fmt.Sprintf("下载成功: %s", fileName),
+		"filePath": savePath,
+		"fileSize": written,
+	}
+}
+
+// SelectDirectory 打开目录选择对话框（IPC）
+func (a *App) SelectDirectory(startPath string) map[string]interface{} {
+	log.Printf("[IPC] 收到 SelectDirectory 调用, startPath=%s", startPath)
+	path, err := pickFolderWindows(startPath)
+	if err != nil {
+		log.Printf("[SelectDirectory] 失败: %v", err)
+		if strings.Contains(err.Error(), "cancelled") || strings.Contains(err.Error(), "取消") {
+			return map[string]interface{}{"success": false, "message": "用户取消选择"}
+		}
 		return map[string]interface{}{"success": false, "message": fmt.Sprintf("打开目录选择对话框失败: %v", err)}
 	}
-	outputStr := strings.TrimSpace(string(output))
-	if outputStr == "" {
-		return map[string]interface{}{"success": false, "message": "用户取消选择"}
-	}
-	pathBytes, err := ConvertBase64ToBytes(outputStr)
-	if err != nil {
-		return map[string]interface{}{"success": false, "message": fmt.Sprintf("路径解码失败: %v", err)}
-	}
-	selectedPath := string(pathBytes)
-	log.Printf("[SelectDirectory] 用户选择目录: %s", selectedPath)
-	return map[string]interface{}{"success": true, "path": selectedPath}
+	log.Printf("[SelectDirectory] 用户选择目录: %s", path)
+	return map[string]interface{}{"success": true, "path": path}
 }
 
 // 下载模板相关功能

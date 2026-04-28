@@ -947,7 +947,28 @@ const messages = {
       size: '大小',
       slotNumber: '坑位编号',
       tip: '提示',
-      usageGuide: '使用说明'
+      usageGuide: '使用说明',
+      cloudManage: '备份管理',
+      cloudManageList: '云机列表',
+      powerOn: '开机',
+      powerOff: '关机',
+      rename: '修改名称',
+      newName: '新名称',
+      enterNewName: '请输入新名称',
+      powerOnSuccess: '开机成功',
+      powerOnFail: '开机失败',
+      starting: '开机中',
+      powerOffSuccess: '关机成功',
+      powerOffFail: '关机失败',
+      confirmPowerOff: '确定要关闭云机 "{name}" 吗？',
+      confirmDeleteMachine: '确定要删除云机 "{name}" 吗？此操作不可恢复。',
+      deleteSuccess: '删除成功',
+      deleteFail: '删除失败',
+      renameSuccess: '修改名称成功',
+      renameFail: '修改名称失败',
+      confirmBatchDelete: '确定要批量删除 {count} 台云机吗？此操作不可恢复。',
+      batchDeleteSuccess: '批量删除成功，共删除 {count} 台',
+      batchDeleteResult: '成功 {success} 台，失败 {fail} 台'
     },
 
     batchTask: {
@@ -1651,7 +1672,9 @@ const messages = {
       apkUpload: '上传APKS',
       oneKeyNewDevice: '一键新机',
       switchModel: '切换机型',
-      resetContainer: '重置容器'
+      resetContainer: '重置容器',
+      fileManager: '文件管理',
+      savePath: '保存路径'
     },
     aiAssistant: {
       bold: '加粗',
@@ -2639,7 +2662,28 @@ const messages = {
       size: 'Size',
       slotNumber: 'Slot No.',
       tip: 'Tip',
-      usageGuide: 'Usage Guide'
+      usageGuide: 'Usage Guide',
+      cloudManage: 'Cloud Manage',
+      cloudManageList: 'Machine List',
+      powerOn: 'Power On',
+      powerOff: 'Power Off',
+      rename: 'Rename',
+      newName: 'New Name',
+      enterNewName: 'Enter new name',
+      powerOnSuccess: 'Powered on successfully',
+      powerOnFail: 'Failed to power on',
+      starting: 'Starting',
+      powerOffSuccess: 'Powered off successfully',
+      powerOffFail: 'Failed to power off',
+      confirmPowerOff: 'Are you sure to power off machine "{name}"?',
+      confirmDeleteMachine: 'Are you sure to delete machine "{name}"? This cannot be undone.',
+      deleteSuccess: 'Deleted successfully',
+      deleteFail: 'Failed to delete',
+      renameSuccess: 'Renamed successfully',
+      renameFail: 'Failed to rename',
+      confirmBatchDelete: 'Are you sure to batch delete {count} machines? This cannot be undone.',
+      batchDeleteSuccess: 'Batch delete successful, {count} machines deleted',
+      batchDeleteResult: 'Success: {success}, Failed: {fail}'
     },
 
     batchTask: {
@@ -3332,7 +3376,9 @@ const messages = {
       apkUpload: 'Upload APKS',
       oneKeyNewDevice: 'One-Click New Device',
       switchModel: 'Switch Model',
-      resetContainer: 'Reset Container'
+      resetContainer: 'Reset Container',
+      fileManager: 'File Manager',
+      savePath: 'Save Path'
     }
   }
 }
