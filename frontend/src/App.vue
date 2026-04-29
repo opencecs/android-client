@@ -20873,10 +20873,10 @@ const handleBindsTest = async () => {
      <el-icon><Refresh /></el-icon>
      <span>{{ $t('cloudMachine.restart') }}</span>
    </div>
-   <div class="context-menu-item" @click="handleMoveInstance">
+   <!-- <div class="context-menu-item" @click="handleMoveInstance">
      <el-icon><Rank /></el-icon>
      <span>{{ $t('cloudMachine.moveInstance') }}</span>
-   </div>
+   </div> -->
    <div class="context-menu-item" @click="handleDelete">
      <el-icon><Delete /></el-icon>
      <span>{{ $t('common.delete') }}</span>

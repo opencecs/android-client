@@ -9,7 +9,7 @@ info:
   description: "MYT V3"
   copyright: "(c) 2026, MYT Network Ltd.co"
   comments: "MYT V3"
-  version: "1.6.5"
+  version: "1.6.6"
 
 # Dev mode configuration
 dev_mode:

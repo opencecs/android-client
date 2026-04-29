@@ -53,7 +53,7 @@ func (a *App) InstallMytPanel(deviceIP string) map[string]interface{} {
 	}
 	log.Printf("[扩展服务] 最新版本: %s, 下载地址: %s", latestVersion, downloadURL)
 
-	// 3. 下载到本地临时目录
+	// 2. 下载到本地临时目录
 	localDir := filepath.Join(os.TempDir(), "myt-panel-install")
 	os.RemoveAll(localDir)
 	os.MkdirAll(localDir, 0755)
