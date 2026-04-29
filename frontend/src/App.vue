@@ -11,7 +11,7 @@ const getDeviceAddr = (ip) => {
 
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, reactive, getCurrentInstance } from 'vue'
 import axios from 'axios'
-import { More, Plus, Loading, Warning, Refresh, Download, Delete, Close, Switch, Upload, QuestionFilled, List, Timer, InfoFilled, ArrowRight, ArrowDown, Back, FolderOpened, Document, CircleCheck, CircleClose, Setting, BellFilled, WarningFilled } from '@element-plus/icons-vue'
+import { More, Plus, Loading, Warning, Refresh, Download, Delete, Close, Switch, Upload, QuestionFilled, List, Timer, InfoFilled, ArrowRight, ArrowDown, Back, FolderOpened, Document, CircleCheck, CircleClose, Setting, BellFilled, WarningFilled, Rank } from '@element-plus/icons-vue'
 import { Events } from '@wailsio/runtime'
 // 导入模型管理组件
 import ModelManagement from './components/modelManagement.vue'
@@ -1411,6 +1411,7 @@ const isLoadingBoxImages = ref(false) // 盒子镜像加载状态
 // 在线镜像列表筛选状态
 const imageCategory = ref('simulator') // 'simulator' | 'container'
 const containerAndroidVersion = ref(10) // 10, 12, 14
+const simulatorAndroidVersion = ref(14) // 模拟器安卓版本
 
 // 镜像使用说明 - 模拟器 vs 容器对比数据
 const imageTypeCompareData = [
@@ -1439,7 +1440,8 @@ const getFilteredImages = (images, model) => {
     // 1. 模拟器 vs 容器
     if (imageCategory.value === 'simulator') {
       // Q/P 系列模拟器：sys_ver == 5
-      return img.sys_ver == 5
+      if (img.sys_ver != 5) return false
+      return img.os_ver == `and${simulatorAndroidVersion.value}`
     } else {
       // 容器：sys_ver != 5
       if (img.sys_ver == 5) return false
@@ -12170,6 +12172,99 @@ const getBackupCount = (slotNum) => {
   ).length
 }
 
+// 移动实例
+const moveInstanceDialogVisible = ref(false)
+const moveInstanceForm = ref({ name: '', indexNum: '', start: false })
+const moveInstanceLoading = ref(false)
+const moveInstanceCurrentSlot = ref(0)
+
+const moveInstanceAvailableSlots = computed(() => {
+  const device = activeDevice.value
+  let maxSlots = 12
+  if (device && device.name && device.name.toLowerCase().startsWith('p')) {
+    maxSlots = 24
+  }
+  const slots = []
+  for (let i = 1; i <= maxSlots; i++) {
+    if (i !== moveInstanceCurrentSlot.value) {
+      slots.push(i)
+    }
+  }
+  return slots
+})
+
+const handleMoveInstance = () => {
+  const container = getCurrentContextMenuContainer()
+  if (!container) {
+    ElMessage.warning('请先选择云机')
+    closeContextMenu()
+    return
+  }
+  moveInstanceCurrentSlot.value = container.indexNum || 0
+  moveInstanceForm.value = {
+    name: container.name || '',
+    indexNum: '',
+    start: false
+  }
+  moveInstanceDialogVisible.value = true
+  closeContextMenu()
+}
+
+const submitMoveInstance = async () => {
+  if (!moveInstanceForm.value.indexNum) {
+    ElMessage.warning('请输入目标坑位')
+    return
+  }
+  moveInstanceLoading.value = true
+  try {
+    let targetDevice = activeDevice.value
+    const container = getCurrentContextMenuContainer()
+    if (cloudManageMode.value === 'batch' && container && container.deviceIp) {
+      targetDevice = devices.value.find(d => d.ip === container.deviceIp) || { ip: container.deviceIp, version: 'v3' }
+    }
+    if (!targetDevice) {
+      ElMessage.error('没有选中设备')
+      return
+    }
+
+    const password = getDevicePassword(targetDevice.ip)
+    const headers = { 'Content-Type': 'application/json' }
+    if (password) {
+      headers['Authorization'] = 'Basic ' + btoa('admin:' + password)
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15000)
+
+    const response = await fetch(
+      `http://${getDeviceAddr(targetDevice.ip)}/android/move`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: moveInstanceForm.value.name,
+          indexNum: Number(moveInstanceForm.value.indexNum),
+          start: moveInstanceForm.value.start
+        }),
+        signal: controller.signal
+      }
+    )
+    clearTimeout(timer)
+    const data = await response.json()
+    if (data.code === 0) {
+      ElMessage.success('移动成功')
+      moveInstanceDialogVisible.value = false
+      await fetchAndroidContainers(targetDevice, true)
+    } else {
+      ElMessage.error(data.message || '移动失败')
+    }
+  } catch (error) {
+    ElMessage.error('移动失败: ' + (error.message || '未知错误'))
+  } finally {
+    moveInstanceLoading.value = false
+  }
+}
+
 const handleResetContainer = async () => {
   const container = getCurrentContextMenuContainer()
   console.log('handleResetContainer called with container:', container)
@@ -18583,13 +18678,24 @@ const handleBindsTest = async () => {
                           <el-radio-button label="container">{{ $t('common.container') }}</el-radio-button>
                         </el-radio-group>
 
-                        <div v-if="imageCategory === 'container'" class="version-filter">
+                        <div v-if="imageCategory === 'container'" class="version-filter" style="display: flex; align-items: center;">
                            <span style="margin-right: 10px; font-size: 12px;">{{ $t('common.androidVersion') }}:</span>
                            <el-radio-group v-model="containerAndroidVersion" size="small">
                              <el-radio :label="10">Android 10</el-radio>
                              <!-- Q1 支持 Android 12，P1 不支持 -->
                              <el-radio v-if="model === 'Q1'" :label="12">Android 12</el-radio>
                              <el-radio :label="14">Android 14</el-radio>
+                           </el-radio-group>
+                        </div>
+                        <div v-if="imageCategory === 'simulator'" class="version-filter" style="display: flex; align-items: center;">
+                           <span style="margin-right: 10px; font-size: 12px;">{{ $t('common.androidVersion') }}:</span>
+                           <el-radio-group v-model="simulatorAndroidVersion" size="small">
+                             <el-radio :label="10">Android 10</el-radio>
+                             <el-radio :label="11">Android 11</el-radio>
+                             <el-radio :label="13">Android 13</el-radio>
+                             <el-radio :label="14">Android 14</el-radio>
+                             <el-radio :label="15">Android 15</el-radio>
+                             <el-radio :label="16">Android 16</el-radio>
                            </el-radio-group>
                         </div>
                       </div>
@@ -20707,6 +20813,27 @@ const handleBindsTest = async () => {
     </template>
   </el-dialog>
 
+  <!-- 移动实例对话框 -->
+  <el-dialog v-model="moveInstanceDialogVisible" :title="$t('cloudMachine.moveInstance')" width="420px">
+    <el-form :model="moveInstanceForm" label-width="100px">
+      <el-form-item :label="$t('cloudMachine.containerName')">
+        <el-input v-model="moveInstanceForm.name" disabled />
+      </el-form-item>
+      <el-form-item :label="$t('cloudMachine.targetSlot')" required>
+        <el-select v-model="moveInstanceForm.indexNum" :placeholder="$t('cloudMachine.enterTargetSlot')">
+          <el-option v-for="slot in moveInstanceAvailableSlots" :key="slot" :label="slot" :value="slot" />
+        </el-select>
+      </el-form-item>
+      <el-form-item :label="$t('cloudMachine.startAfterMove')">
+        <el-switch v-model="moveInstanceForm.start" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="moveInstanceDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+      <el-button type="primary" @click="submitMoveInstance" :loading="moveInstanceLoading">{{ $t('common.confirm') }}</el-button>
+    </template>
+  </el-dialog>
+
   <!-- 右键菜单 -->
   <div 
     v-if="contextMenuVisible"
@@ -20745,6 +20872,10 @@ const handleBindsTest = async () => {
    <div class="context-menu-item" @click="handleRestart">
      <el-icon><Refresh /></el-icon>
      <span>{{ $t('cloudMachine.restart') }}</span>
+   </div>
+   <div class="context-menu-item" @click="handleMoveInstance">
+     <el-icon><Rank /></el-icon>
+     <span>{{ $t('cloudMachine.moveInstance') }}</span>
    </div>
    <div class="context-menu-item" @click="handleDelete">
      <el-icon><Delete /></el-icon>

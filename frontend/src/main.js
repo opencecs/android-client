@@ -1380,6 +1380,8 @@ const messages = {
     },
     image: {
       usageGuide: '使用说明',
+      deviceModel: '设备型号',
+      availableSpace: '可用空间',
       guideContent: `<div class="image-guide-container" style="font-size: 13px; color: #606266; line-height: 2;">
   <h3 style="color: #303133; font-size: 16px; margin-bottom: 20px; display: flex; align-items: center;">
     <i class="el-icon-picture-outline" style="margin-right: 8px;"></i> 镜像管理使用说明
@@ -1673,6 +1675,11 @@ const messages = {
       oneKeyNewDevice: '一键新机',
       switchModel: '切换机型',
       resetContainer: '重置容器',
+      moveInstance: '移动实例',
+      containerName: '容器名称',
+      targetSlot: '目标坑位',
+      enterTargetSlot: '请输入目标坑位号',
+      startAfterMove: '是否开机',
       fileManager: '文件管理',
       savePath: '保存路径'
     },
@@ -3084,6 +3091,8 @@ const messages = {
     },
     image: {
       usageGuide: 'Usage Guide',
+      deviceModel: 'Device Model',
+      availableSpace: 'Available Space',
       guideContent: `<div class="image-guide-container" style="font-size: 13px; color: #606266; line-height: 2;">
   <h3 style="color: #303133; font-size: 16px; margin-bottom: 20px; display: flex; align-items: center;">
     <i class="el-icon-picture-outline" style="margin-right: 8px;"></i> Image Management Guide
@@ -3377,6 +3386,11 @@ const messages = {
       oneKeyNewDevice: 'One-Click New Device',
       switchModel: 'Switch Model',
       resetContainer: 'Reset Container',
+      moveInstance: 'Move Instance',
+      containerName: 'Container Name',
+      targetSlot: 'Target Slot',
+      enterTargetSlot: 'Enter target slot number',
+      startAfterMove: 'Power On',
       fileManager: 'File Manager',
       savePath: 'Save Path'
     }

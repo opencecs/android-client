@@ -442,6 +442,7 @@
             stripe 
             size="small" 
             class="slot-table"
+            :max-height="`calc(100vh - 280px)`"
             :row-key="row => row.slotNum"
             @selection-change="handleSlotSelectionChange"
           >
@@ -3026,6 +3027,35 @@ onBeforeUnmount(() => {
 
 .cloud-machine-container {
   height: calc(100vh - 220px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
+
+.cloud-machine-slots {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 网格模式：checkbox-group 正常自动高度，由父容器滚动 */
+.cloud-machine-slots .cloud-machine-grid {
+  flex: none;
+}
+
+.slot-table {
+  flex: 1;
+  /* 列表模式：表格撑满剩余高度，内部自滚动 */
+}
+
+:deep(.slot-table .el-table__body-wrapper) {
+  overflow-y: auto;
+}
+
+
+
+
+
 
 </style>
