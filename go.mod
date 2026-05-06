@@ -6,10 +6,12 @@ require (
 	gitee.com/zoums/dget v1.0.61
 	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/jchv/go-webview2 v0.0.0-20260205173254-56598839c808
+	github.com/pkg/sftp v1.13.10
 	github.com/q191201771/lal v0.37.4
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.60
-	golang.org/x/sys v0.33.0
+	golang.org/x/crypto v0.41.0
+	golang.org/x/sys v0.35.0
 )
 
 // 替换为本地修改后的dget库，支持真实进度返回
@@ -36,6 +38,7 @@ require (
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
 	github.com/lmittmann/tint v1.0.7 // indirect
@@ -55,9 +58,8 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
-	golang.org/x/net v0.37.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
