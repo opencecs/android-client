@@ -5262,42 +5262,57 @@ const handleBatchAction = async (action, selectedData = [], cardOrientation = nu
       case 'restart':
         // 实现批量重启功能
         console.log(`执行批量重启操作`)
-        
-        let containersToRestart = []
-        
+
+        let restartRunning = []
+        let restartShutdown = []
+
         // 根据云机管理模式获取需要操作的容器
         if (cloudManageMode.value === 'slot') {
           // 坑位模式：根据选中的坑位号获取容器实例
-          containersToRestart = instances.value.filter(inst => 
-            Array.isArray(selectedData) && selectedData.includes(inst.indexNum) && 
-            inst.status === 'running' // 只选择运行中的容器
+          const selectedInstances = instances.value.filter(inst =>
+            Array.isArray(selectedData) && selectedData.includes(inst.indexNum) &&
+            (inst.status === 'running' || inst.status === 'shutdown' || inst.status === 'exited')
           )
+          restartRunning = selectedInstances.filter(inst => inst.status === 'running')
+          restartShutdown = selectedInstances.filter(inst => inst.status === 'shutdown' || inst.status === 'exited')
         } else {
           // 批量模式：直接使用传递的云机对象数组
-          containersToRestart = selectedData.filter(machine => 
-            machine.status === 'running' // 只选择运行中的容器
+          const selectedMachines = selectedData.filter(machine =>
+            machine.status === 'running' || machine.status === 'shutdown' || machine.status === 'exited'
           )
+          restartRunning = selectedMachines.filter(machine => machine.status === 'running')
+          restartShutdown = selectedMachines.filter(machine => machine.status === 'shutdown' || machine.status === 'exited')
         }
-        
-        if (containersToRestart.length === 0) {
-          ElMessage.warning('没有选中运行中的云机')
+
+        if (restartRunning.length === 0 && restartShutdown.length === 0) {
+          ElMessage.warning('没有选中可操作的云机')
           break
         }
-        
+
         try {
+          const totalCount = restartRunning.length + restartShutdown.length
+          let confirmMsg = ''
+          if (restartShutdown.length === 0) {
+            confirmMsg = `确定要重启选中的 ${restartRunning.length} 个运行中的云机吗？重启后容器将会停止并重新启动。`
+          } else if (restartRunning.length === 0) {
+            confirmMsg = `选中的 ${restartShutdown.length} 个云机处于关机状态，将执行启动操作。确定继续吗？`
+          } else {
+            confirmMsg = `选中的 ${totalCount} 个云机中，${restartRunning.length} 个运行中将重启，${restartShutdown.length} 个关机中将启动。确定继续吗？`
+          }
+
           // 显示确认对话框
           await ElMessageBox.confirm(
-            `确定要重启选中的 ${containersToRestart.length} 个运行中的云机吗？重启后容器将会停止并重新启动。`, 
-            '批量重启云机', 
+            confirmMsg,
+            '批量重启云机',
             {
               confirmButtonText: '确定',
               cancelButtonText: '取消',
               type: 'warning'
             }
           )
-          
-          // 为每个容器添加设备信息
-          const restartTargets = containersToRestart.map(container => {
+
+          // 为容器添加设备信息
+          const addTargetInfo = (container) => {
             if (cloudManageMode.value === 'slot' && selectedCloudDevice.value) {
               return {
                 ...container,
@@ -5307,13 +5322,23 @@ const handleBatchAction = async (action, selectedData = [], cardOrientation = nu
             } else {
               return container
             }
-          })
-          
-          // 添加到任务队列
-          const taskId = addTaskToQueue('restart', restartTargets)
-          executeTask(taskId)
-          
-          ElMessage.success('批量重启任务已添加到队列')
+          }
+
+          // 运行中的云机执行重启
+          if (restartRunning.length > 0) {
+            const restartTargets = restartRunning.map(addTargetInfo)
+            const taskId = addTaskToQueue('restart', restartTargets)
+            executeTask(taskId)
+          }
+
+          // 关机状态的云机执行启动
+          if (restartShutdown.length > 0) {
+            const startTargets = restartShutdown.map(addTargetInfo)
+            const taskId = addTaskToQueue('start', startTargets)
+            executeTask(taskId)
+          }
+
+          ElMessage.success('批量操作任务已添加到队列')
         } catch (error) {
           if (error === 'cancel') {
             // 用户取消了操作
@@ -15072,6 +15097,7 @@ const addTaskToQueue = (taskType, targets, metadata = {}) => {
   const getTimeout = (type) => {
     switch (type) {
       case 'restart': // 重启需要stop+start，通常需要更长时间
+      case 'start':   // 启动操作
       case 'reset':   // 重置操作通常需要更长时间
         return 30000  // 30秒
       case 'shutdown': // 关机操作
@@ -15586,14 +15612,24 @@ const executeTask = async (taskId) => {
                 case 'restart': {
                   const device = { ip: target.deviceIp, version: target.deviceVersion || 'v3' }
                   const actualDevice = cloudManageMode.value === 'slot' && selectedCloudDevice.value ? selectedCloudDevice.value : device
-                  
+
                   // 重启容器前，清空该容器的截图缓存，避免显示旧截图
                   clearContainerScreenshotCache(actualDevice, target)
-                  
+
                   if (cloudManageMode.value === 'slot' && selectedCloudDevice.value) {
                     await restartAndroidContainer(selectedCloudDevice.value, containerName)
                   } else {
                     await restartAndroidContainer(device, containerName)
+                  }
+                  return true
+                }
+
+                case 'start': {
+                  const startDevice = { ip: target.deviceIp, version: target.deviceVersion || 'v3' }
+                  if (cloudManageMode.value === 'slot' && selectedCloudDevice.value) {
+                    await startContainer(selectedCloudDevice.value, containerName)
+                  } else {
+                    await startContainer(startDevice, containerName)
                   }
                   return true
                 }
@@ -15828,7 +15864,7 @@ const executeTask = async (taskId) => {
           let result = await operationWithTimeout()
           
           // 对于restart和reset操作，如果超时则验证实际结果
-          if (result === null && (task.type === 'restart' || task.type === 'reset')) {
+          if (result === null && (task.type === 'restart' || task.type === 'start' || task.type === 'reset')) {
             console.log('超时后验证操作结果...')
             await new Promise(resolve => setTimeout(resolve, 5000))
             
@@ -15976,7 +16012,7 @@ const executeTask = async (taskId) => {
     }
     
     // 显示任务完成通知
-    const taskTypeText = task.type === 'restart' ? '批量重启' : task.type === 'reset' ? '批量重置' : task.type === 'shutdown' ? '批量关机' : task.type === 'create' ? '批量创建' : task.type === 'delete' ? '批量删除' : task.type === 'switchModel' ? (task.operation === 'new' ? '批量新机' : '批量切换机型') : task.type === 'uploadFile' ? '批量上传' : task.type === 'uploadImage' ? '批量上传镜像' : task.type === 'downloadImage' ? '下载镜像' : task.type === 'updateImage' ? '批量更新镜像' : '批量操作'
+    const taskTypeText = task.type === 'restart' ? '批量重启' : task.type === 'start' ? '批量启动' : task.type === 'reset' ? '批量重置' : task.type === 'shutdown' ? '批量关机' : task.type === 'create' ? '批量创建' : task.type === 'delete' ? '批量删除' : task.type === 'switchModel' ? (task.operation === 'new' ? '批量新机' : '批量切换机型') : task.type === 'uploadFile' ? '批量上传' : task.type === 'uploadImage' ? '批量上传镜像' : task.type === 'downloadImage' ? '下载镜像' : task.type === 'updateImage' ? '批量更新镜像' : '批量操作'
     if (task.status === 'completed') {
       if (task.type === 'uploadFile') {
         ElMessage.success(`${taskTypeText}任务已完成，成功上传到 ${actualSuccessMachines} 个云机`)

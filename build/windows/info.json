@@ -1,10 +1,10 @@
 {
 	"fixed": {
-		"file_version": "1.6.7"
+		"file_version": "1.6.8"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "1.6.7",
+			"ProductVersion": "1.6.8",
 			"CompanyName": "MYT",
 			"FileDescription": "MYTV3",
 			"LegalCopyright": "© 2026, MYT",

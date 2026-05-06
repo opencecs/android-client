@@ -2734,6 +2734,13 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 
+/* 批量模式容器：撑满父容器剩余高度并独立滚动 */
+.batch-cloud-machines {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 /* 设备菜单样式 */
 .device-menu {
   overflow-y: auto;
