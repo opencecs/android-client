@@ -1413,6 +1413,15 @@ const imageCategory = ref('simulator') // 'simulator' | 'container'
 const containerAndroidVersion = ref(10) // 10, 12, 14
 const simulatorAndroidVersion = ref(14) // 模拟器安卓版本
 
+// 设备API版本是否低于100（低于100时模拟器只显示Android 14）
+const isLowApiVersion = computed(() => {
+  const device = selectedDeviceForImages.value || activeDevice.value
+  if (!device) return false
+  const versionInfo = deviceVersionInfo.value.get(device.id)
+  if (!versionInfo || !versionInfo.currentVersion) return false
+  return parseInt(versionInfo.currentVersion) < 100
+})
+
 // 镜像使用说明 - 模拟器 vs 容器对比数据
 const imageTypeCompareData = [
   { dimension: '运行原理', simulator: '基于 QEMU 等虚拟机技术，完整模拟 ARM 硬件', container: '基于 Linux 容器（如 Docker）轻量隔离，共享宿主机内核' },
@@ -1428,6 +1437,13 @@ const imageTypeCompareData = [
 watch(currentOnlineImageModel, (newModel) => {
   if (newModel === 'P1' && containerAndroidVersion.value === 12) {
     containerAndroidVersion.value = 10
+  }
+})
+
+// API版本低于100时，模拟器自动重置安卓版本为14
+watch(isLowApiVersion, (low) => {
+  if (low) {
+    simulatorAndroidVersion.value = 14
   }
 })
 
@@ -19849,12 +19865,12 @@ const handleBindsTest = async () => {
             <!-- 安卓版本 -->
             <el-form-item :label="$t('common.androidVersion')">
               <el-select v-model="createForm.androidVersion" style="width: 100%;">
-                <el-option label="Android 10" value="10"></el-option>
-                <el-option label="Android 11" value="11"></el-option>
-                <el-option label="Android 13" value="13"></el-option>
+                <el-option v-if="createDeviceApiVersionNumber === null || createDeviceApiVersionNumber >= 99" label="Android 10" value="10"></el-option>
+                <el-option v-if="createDeviceApiVersionNumber === null || createDeviceApiVersionNumber >= 99" label="Android 11" value="11"></el-option>
+                <el-option v-if="createDeviceApiVersionNumber === null || createDeviceApiVersionNumber >= 99" label="Android 13" value="13"></el-option>
                 <el-option label="Android 14" value="14"></el-option>
-                <el-option label="Android 15" value="15"></el-option>
-                <el-option v-if="createDeviceApiVersionNumber === null || createDeviceApiVersionNumber >= 92" label="Android 16" value="16"></el-option>
+                <el-option v-if="createDeviceApiVersionNumber === null || createDeviceApiVersionNumber >= 99" label="Android 15" value="15"></el-option>
+                <el-option v-if="createDeviceApiVersionNumber === null || createDeviceApiVersionNumber >= 99" label="Android 16" value="16"></el-option>
               </el-select>
             </el-form-item>
             <!-- 镜像分类 -->
@@ -21945,21 +21961,21 @@ const handleBindsTest = async () => {
                   {{ $t('common.delete') }}
                 </el-button>
                 <template v-if="scope.row.status === 'running'">
-                  <el-button 
-                    size="mini" 
+                  <el-button
+                    size="mini"
                     type="primary"
                     @click="() => { try { startProjection({ ip: scope.row.networkName == 'myt' ? scope.row.ip : activeDevice?.ip }, scope.row) } catch (error) { console.error('打开投屏失败:', error) } }"
                   >
                     {{ $t('common.openProjection') }}
                   </el-button>
-                  <el-button 
-                    size="mini" 
-                    type="info"
-                    @click="showUpdateImageDialog(scope.row)"
-                  >
-                    {{ $t('common.updateImage') }}
-                  </el-button>
                 </template>
+                <el-button
+                  size="mini"
+                  type="info"
+                  @click="showUpdateImageDialog(scope.row)"
+                >
+                  {{ $t('common.updateImage') }}
+                </el-button>
               </el-space>
             </template>
           </el-table-column>
