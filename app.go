@@ -900,6 +900,148 @@ func (a *App) QueryOrderStatus(params QueryOrderParams) map[string]interface{} {
 	}
 }
 
+// GetUserAtt 获取用户属性（积分等）
+func (a *App) GetUserAtt(token string) map[string]interface{} {
+	log.Printf("[GetUserAtt] 开始获取用户属性")
+
+	apiURL := "https://www.moyunteng.com/api/api.php"
+
+	formData := url.Values{}
+	formData.Set("type", "get_user_att")
+
+	dataMap := map[string]string{"token": token}
+	dataJSON, _ := json.Marshal(dataMap)
+	formData.Set("data", string(dataJSON))
+
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("创建请求失败: %v", err),
+		}
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", "https://www.moyunteng.com/")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+	req.Header.Set("Origin", "https://www.moyunteng.com")
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("请求失败: %v", err),
+		}
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("读取响应失败: %v", err),
+		}
+	}
+
+	log.Printf("[GetUserAtt] 响应: %s", string(body))
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": string(body),
+		}
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"data":    result,
+	}
+}
+
+// ScoreExchangeTermTime 积分支付兑换实例时长
+func (a *App) ScoreExchangeTermTime(params OrderParams) map[string]interface{} {
+	log.Printf("[ScoreExchangeTermTime] 开始积分支付, params: %+v", params)
+
+	apiURL := "https://www.moyunteng.com/api/api.php"
+
+	formData := url.Values{}
+	formData.Set("type", "score_exchange_term_time")
+
+	orderData := map[string]string{
+		"rabbet":  params.Rabbet,
+		"package": params.Package,
+		"money":   params.Money,
+		"paytype": params.PayType,
+		"token":   params.Token,
+	}
+	orderDataJSON, _ := json.Marshal(orderData)
+	formData.Set("data", string(orderDataJSON))
+
+	req, err := http.NewRequest("POST", apiURL, strings.NewReader(formData.Encode()))
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("创建请求失败: %v", err),
+		}
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", "https://www.moyunteng.com/")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json, text/javascript, */*; q=0.01")
+	req.Header.Set("Origin", "https://www.moyunteng.com")
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("请求失败: %v", err),
+		}
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("读取响应失败: %v", err),
+		}
+	}
+
+	log.Printf("[ScoreExchangeTermTime] 响应: %s", string(body))
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": string(body),
+		}
+	}
+
+	code, _ := result["code"].(string)
+	if code != "0" && code != "200" {
+		return map[string]interface{}{
+			"success": false,
+			"message": result["msg"],
+		}
+	}
+
+	return map[string]interface{}{
+		"success": true,
+		"data":    result,
+	}
+}
+
 // ProgressReader 带进度回调的Reader包装器
 type ProgressReader struct {
 	Reader    io.Reader
@@ -13061,10 +13203,12 @@ func (a *App) ProxyHttpGet(requestUrl string) (string, error) {
 
 // DeviceShake 摇一摇
 func (a *App) DeviceShake(deviceIP string, port int, password string) error {
-	log.Println("DeviceShake", deviceIP, port)
-	url := fmt.Sprintf("http://%s:%d/modifydev?cmd=17&shake=true", deviceIP, port)
+	url := fmt.Sprintf("http://%s:%d/modifydev?cmd=17&shake=1", deviceIP, port)
+	log.Printf("[DeviceShake] 请求: %s", url)
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+		log.Printf("[DeviceShake] 创建请求失败: %v", err)
 		return err
 	}
 
@@ -13075,9 +13219,13 @@ func (a *App) DeviceShake(deviceIP string, port int, password string) error {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("[DeviceShake] 请求失败: %v", err)
 		return err
 	}
 	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("[DeviceShake] 响应状态: %d, 响应体: %s", resp.StatusCode, string(body))
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("request failed with status code: %d", resp.StatusCode)

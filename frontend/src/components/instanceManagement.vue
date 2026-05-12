@@ -28,7 +28,7 @@
                         <el-option :label="$t('instance.statusExpired')" :value="2"></el-option>
                         <el-option :label="$t('instance.noInstance')" :value="-1"></el-option>
                     </el-select>
-                    <el-input v-model="searchHostRabbet" size="medium" :placeholder="$t('instance.searchPlaceholder')" clearable @keyup.enter="handleSearch"
+                    <el-input v-model="searchHostRabbet" size="medium" :placeholder="$t('instance.searchPlaceholderBatch')" clearable @keyup.enter="handleSearch" @clear="handleSearch"
                         class="search-input">
                         <template #prefix>
                             <el-icon>
@@ -152,6 +152,13 @@
                     <span class="total-label">{{ $t('instance.subtotal') }}</span>
                     <span class="total-amount">¥{{ (parseFloat(packageList.find(p => p.id === selectedPackage)?.price || 0) * selectedInstances.length).toFixed(2) }}元</span>
                     <span class="total-instances">({{ selectedInstances.length }} {{ $t('instance.instances') }})</span>
+                </div>
+                <div class="pay-method-section">
+                    <span class="total-label">{{ $t('instance.payMethod') }}</span>
+                    <el-radio-group v-model="payMethod" style="margin-left: 10px;">
+                        <el-radio label="zfb">{{ $t('instance.alipay') }}</el-radio>
+                        <el-radio label="score">{{ $t('instance.pointsPay') }}（{{ $t('instance.availablePoints') }}：{{ userScore }}）</el-radio>
+                    </el-radio-group>
                 </div>
             </div>
             <template #footer>
@@ -393,7 +400,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Loading, Cellphone, Lock as LockIcon, WarningFilled } from '@element-plus/icons-vue'
-import { GetUserRabbetListWithToken, GetPackage, CreateOrder, QueryOrderStatus, GetPhoneVCode, Register } from '../../bindings/edgeclient/app'
+import { GetUserRabbetListWithToken, GetPackage, CreateOrder, QueryOrderStatus, GetPhoneVCode, Register, GetUserAtt, ScoreExchangeTermTime } from '../../bindings/edgeclient/app'
 import CryptoJS from 'crypto-js'
 
 const props = defineProps({
@@ -468,6 +475,11 @@ const selectedPackage = ref(null)
 const loadingPackages = ref(false)
 const selectedInstances = ref([])
 
+// 支付方式相关数据
+const payMethod = ref('zfb') // 'zfb' 或 'score'
+const userScore = ref(0)
+const scoreLoading = ref(false)
+
 // 二维码相关数据
 const qrcodeDialogVisible = ref(false)
 const qrcodeImage = ref('')
@@ -508,10 +520,10 @@ const instanceList = ref([])
 const searchHostRabbet = ref('')
 const searchState = ref('')
 
-const isClientSideMode = computed(() => {
-    // 始终使用客户端分页（因为已按主机设备过滤，数据量可控）
-    return true
-})
+const isClientSideMode = computed(() => {
+    // 始终使用客户端分页（因为已按主机设备过滤，数据量可控）
+    return true
+})
 
 // 过滤显示的子实例
 const getDisplayChildren = (row) => {
@@ -693,11 +705,11 @@ const handleSearch = () => {
     currentPage.value = 1
     selectedInstances.value = []
     selectedPackage.value = null
-    
+
     if (instanceTableRef.value) {
         instanceTableRef.value.clearSelection()
     }
-    
+
     fetchInstances()
 }
 
@@ -745,12 +757,13 @@ const handleBatchBuy = async () => {
         ElMessage.warning('请先选择要购买/续费的实例')
         return
     }
-    
+
     selectedInstances.value = selected
     packageDialogVisible.value = true
     selectedPackage.value = null
-    
-    await fetchPackages()
+    payMethod.value = 'zfb'
+
+    await Promise.all([fetchPackages(), fetchUserScore()])
 }
 
 // 取消选中单个实例
@@ -802,21 +815,39 @@ const fetchPackages = async () => {
     }
 }
 
+// 获取用户积分
+const fetchUserScore = async () => {
+    scoreLoading.value = true
+    try {
+        const result = await GetUserAtt(token.value)
+        console.log('GetUserAtt result:', JSON.stringify(result))
+        if (result.success && result.data) {
+            // result.data 是 API 原始响应: {code, data: {score}, msg}
+            const apiData = result.data.data || result.data
+            userScore.value = parseFloat(apiData.score) || 0
+        }
+    } catch (error) {
+        console.error('获取用户积分失败:', error)
+    } finally {
+        scoreLoading.value = false
+    }
+}
+
 // 确认购买
 const handleConfirmBuy = async () => {
     if (!selectedPackage.value) {
         ElMessage.warning('请选择购买套餐')
         return
     }
-    
+
     const pkg = packageList.value.find(p => p.id === selectedPackage.value)
     if (!pkg) {
         ElMessage.error('所选套餐不存在')
         return
     }
-    
+
     const totalPrice = (parseFloat(pkg.price) * selectedInstances.value.length).toFixed(2)
-    
+
     const instanceData = {}
     selectedInstances.value.forEach(item => {
         if (!instanceData[item.hostRabbet]) {
@@ -824,7 +855,7 @@ const handleConfirmBuy = async () => {
         }
         instanceData[item.hostRabbet].push(item.instanceKey)
     })
-    
+
     const params = {
         rabbet: JSON.stringify(instanceData),
         package: pkg.id,
@@ -832,26 +863,45 @@ const handleConfirmBuy = async () => {
         paytype: 'zfb',
         token: token.value,
     }
-    
-    
+
+    // 积分支付
+    if (payMethod.value === 'score') {
+        if (userScore.value < parseFloat(totalPrice)) {
+            ElMessage.warning('积分不足')
+            return
+        }
+        try {
+            const result = await ScoreExchangeTermTime(params)
+            if (result.success) {
+                ElMessage.success('支付成功')
+                packageDialogVisible.value = false
+                selectedInstances.value = []
+                selectedPackage.value = null
+                await fetchInstances()
+                emit('handleSyncAuthorization')
+            } else {
+                ElMessage.error(result.message || '积分支付失败')
+            }
+        } catch (error) {
+            console.error('积分支付失败:', error)
+            ElMessage.error('积分支付失败')
+        }
+        return
+    }
+
+    // 支付宝支付
     try {
         const result = await CreateOrder(params)
         console.log('CreateOrder result:', JSON.stringify(result))
-        
+
         if (result.success) {
-            // packageDialogVisible.value = false
-            
             const data = result.data
             const qrcode = data && data.qrcode
             if (qrcode) {
                 qrcodeImage.value = qrcode
                 qrcodeDialogVisible.value = true
                 const orderId = data.oid || ''
-                // const orderToken = data.token || ''
-                // if (orderId && orderToken) {
-                    startPaymentPolling(orderId, token.value)
-                // }
-                // ElMessage.success('订单创建成功，请扫码支付')
+                startPaymentPolling(orderId, token.value)
             } else {
                 ElMessage.success('订单创建成功')
             }
@@ -918,28 +968,42 @@ watch(qrcodeDialogVisible, (newVal) => {
     }
 })
 
+// 判断搜索字符串是否包含多个搜索词
+const isBatchSearch = (str) => {
+    const trimmed = str.trim()
+    if (!trimmed) return false
+    const terms = trimmed.split(/[,，\s\n]+/).filter(s => s.length > 0)
+    return terms.length > 1
+}
+
 // 判断是否为IP地址搜索（支持完整IP或部分IP段模糊匹配）
 const isIPSearch = (str) => {
     const trimmed = str.trim()
     if (!trimmed) return false
-    
-    // 检查是否包含数字和点号，且没有空格等非法字符
-    const hasDigits = /\d/.test(trimmed)
-    const hasDots = trimmed.includes('.')
-    const noSpaces = !trimmed.includes(' ')
-    const noLetters = !/[a-zA-Z]/.test(trimmed)
-    
-    // 数字和点的组合才认为是IP搜索
-    return hasDigits && hasDots && noSpaces && noLetters
+    const terms = trimmed.split(/[,，\s\n]+/).filter(s => s.length > 0)
+    return terms.some(term => {
+        const hasDigits = /\d/.test(term)
+        const hasDots = term.includes('.')
+        const noLetters = !/[a-zA-Z]/.test(term)
+        return hasDigits && hasDots && noLetters
+    })
 }
 
-// 根据IP过滤实例列表
-const filterInstancesByIP = (instances, ip) => {
-    const searchIP = ip.trim()
+// 根据IP或关键字过滤实例列表（支持批量搜索，精准匹配）
+const filterInstances = (instances, searchStr) => {
+    const searchTerms = searchStr.trim().split(/[,，\s\n]+/).map(s => s.toLowerCase()).filter(s => s.length > 0)
+    if (searchTerms.length === 0) return instances
+
     return instances.filter(item => {
         const device = props.devices.find(d => d.id == item.rabbet)
-        console.log('Matching device for rabbet:', item.rabbet, 'device:', device)
-        return device && device.ip && device.ip.includes(searchIP)
+        const deviceIP = (device && device.ip) ? device.ip.toLowerCase() : ''
+        const deviceName = (device && device.name) ? device.name.toLowerCase() : ''
+
+        return searchTerms.some(term => {
+            if (deviceIP === term) return true
+            if (deviceName === term) return true
+            return false
+        })
     })
 }
 
@@ -954,17 +1018,18 @@ const fetchInstances = async () => {
         }
         const searchTerm = searchHostRabbet.value.trim()
         const isIPMode = searchTerm && isIPSearch(searchTerm)
+        const isBatch = isBatchSearch(searchTerm)
         const hasStateFilter = searchState.value !== '' && searchState.value !== null && searchState.value !== undefined
-        
-        // 始终获取全量数据，因为需要按主机设备过滤
+
+        // 批量搜索或IP搜索时获取全量数据，单关键词搜索传给API
         const page = 1
         const size = 1000
-        
+
         const result = await GetUserRabbetListWithToken(
             currentToken,
             page,
             size,
-            isIPMode ? '' : searchTerm // IP搜索时不传搜索参数
+            (isIPMode || isBatch) ? '' : searchTerm
         )
 
         console.log('GetUserRabbetListWithToken result:', result)
@@ -996,9 +1061,9 @@ const fetchInstances = async () => {
                 return 0
             })
             
-            // 如果是IP搜索，在客户端进行过滤
-            if (isIPMode) {
-                const filteredList = filterInstancesByIP(dataList, searchTerm)
+            // 批量搜索或IP搜索时，在客户端进行过滤
+            if (isIPMode || isBatch) {
+                const filteredList = filterInstances(dataList, searchTerm)
                 instanceList.value = filteredList
                 total.value = filteredList.length
                 if (filteredList.length === 0) {
@@ -1750,6 +1815,14 @@ defineExpose({
     align-items: center;
     justify-content: flex-end;
     gap: 12px;
+}
+
+.pay-method-section {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-top: 12px;
+    gap: 8px;
 }
 
 .total-label {

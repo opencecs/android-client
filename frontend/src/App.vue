@@ -9068,6 +9068,39 @@ const handleCreateSubmit = async () => {
     return
   }
 
+  // 检查选中坑位状态，非正常状态的坑位需要用户二次确认
+  const selectedSlots = createForm.value.selectedSlots || []
+  const emptySlots = []
+  const expiredSlots = []
+  const expiringSlots = []
+  selectedSlots.forEach(slot => {
+    const info = slotStates.value[slot]
+    if (!info || info.state === -1 || info.state === undefined) {
+      emptySlots.push(slot)
+    } else if (info.state === 2) {
+      expiredSlots.push(slot)
+    } else if (info.state === 1) {
+      expiringSlots.push(slot)
+    }
+  })
+  const warningCount = emptySlots.length + expiredSlots.length + expiringSlots.length
+  if (warningCount > 0) {
+    const parts = []
+    if (emptySlots.length > 0) parts.push(`${emptySlots.length}个无实例`)
+    if (expiredSlots.length > 0) parts.push(`${expiredSlots.length}个已过期`)
+    if (expiringSlots.length > 0) parts.push(`${expiringSlots.length}个即将过期`)
+
+    try {
+      await ElMessageBox.confirm(
+        `您选择的坑位中包含${parts.join('、')}的坑位，是否继续创建？`,
+        '提示',
+        { confirmButtonText: '继续创建', cancelButtonText: '取消', type: 'warning' }
+      )
+    } catch {
+      return
+    }
+  }
+
   let globalIpIndex = 0
   
   // 批量创建模式下的容器模式逻辑

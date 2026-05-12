@@ -870,7 +870,8 @@ const fetchBackupMachineContainers = async () => {
         if (response.ok) {
             const data = await response.json()
             if (data.code == 0) {
-                backupMachineContainerList.value = (data.data.list || []).filter(item => item.androidType !== 'V2')
+                // backupMachineContainerList.value = (data.data.list || []).filter(item => item.androidType !== 'V2')
+                backupMachineContainerList.value = data.data.list || []
             } else {
                 ElMessage.error(data.message || '获取云机列表失败')
             }
