@@ -499,7 +499,7 @@
                 <el-form-item :label="t('backup.selectMachine')">
                     <el-select v-model="selectedBackupMachineContainer" :placeholder="t('backup.pleaseSelectMachine')" size="medium" style="width: 100%;"
                         @change="handleBackupMachineContainerChange">
-                        <el-option v-for="container in backupMachineContainerList" :key="container.id" :label="container.name"
+                        <el-option v-for="container in backupMachineContainerList" :key="container.id" :label="container.name + (container.androidType === 'V2' ? ' (V2)' : '')"
                             :value="container.id" />
                     </el-select>
                 </el-form-item>
@@ -903,8 +903,11 @@ const handleConfirmAddBackupMachine = async () => {
 
     backupMachineCreating.value = true
     try {
+        // V2容器模式使用 /androidV2/export，V3模拟器模式使用 /android/export
+        const isV2 = container.androidType === 'V2'
+        const exportPath = isV2 ? '/androidV2/export' : '/android/export'
         const response = await fetchWithTimeout(
-            `http://${getDeviceAddr(selectedDeviceIP.value)}/android/export`,
+            `http://${getDeviceAddr(selectedDeviceIP.value)}${exportPath}`,
             {
                 method: 'POST',
                 headers: {
@@ -1606,11 +1609,16 @@ const handleConfirmImportBackupMachine = async () => {
     try {
         importBackupLoading.value = true
 
+        // 获取目标设备版本，区分V2/V3导入接口
+        const targetDevice = props.devices.find(d => d.ip === importBackupDeviceIP.value)
+        const targetVersion = targetDevice?.version || 'v3'
+
         const result = await ImportBackupMachine(
             importBackupDeviceIP.value,
             importBackupDeviceName.value,
             importBackupMachineName.value.trim(),
-            importBackupSlot.value
+            importBackupSlot.value,
+            targetVersion
         )
 
         if (result.success) {

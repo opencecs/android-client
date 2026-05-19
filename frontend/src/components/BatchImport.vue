@@ -835,6 +835,7 @@ const startImport = async () => {
       devicesConfig.push({
         device_ip: device.ip,
         device_type: slotCount === 12 ? '12slots' : '24slots',
+        device_version: device.version || 'v3',
         slot_configs: deviceSlots
       })
     }

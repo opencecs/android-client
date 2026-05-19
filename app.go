@@ -3757,7 +3757,7 @@ func callDockerAPI(deviceIP string, version string, endpoint string, method stri
 	var req *http.Request
 	var err error
 
-	// 对于v3设备，优先使用8000端口的docker端点
+	// 对于v3设备，使用8000端口的docker端点，不回退2375
 	if version == "v3" {
 		url = fmt.Sprintf("http://%s/docker%s", deviceAddr(deviceIP), endpoint)
 		req, err = http.NewRequest(method, url, bytes.NewBuffer(data))
@@ -3772,16 +3772,10 @@ func callDockerAPI(deviceIP string, version string, endpoint string, method stri
 
 		// 发送请求
 		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.Do(req)
-		if err == nil && resp.StatusCode < 500 {
-			return resp, nil
-		}
-
-		// 如果8000端口失败，回退到2375端口
-		log.Printf("v3 docker端点调用失败，回退到2375端口: %v", err)
+		return client.Do(req)
 	}
 
-	// 使用2375端口的标准Docker API
+	// 非V3设备使用2375端口的标准Docker API
 	url = fmt.Sprintf("http://%s:2375%s", deviceIP, endpoint)
 	req, err = http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
@@ -3848,11 +3842,11 @@ func callDockerAPIWithReader(ctx context.Context, deviceIP string, version strin
 			}
 		}
 
-		// 如果所有8000端口的尝试都失败，回退到2375端口
-		log.Printf("v3 docker端点调用失败，回退到2375端口: %v", err)
+		// V3设备8000端口不可用，直接返回错误（不回退2375）
+		return nil, fmt.Errorf("V3设备docker端点不可用: %v", err)
 	}
 
-	// 使用2375端口的标准Docker API
+	// 非V3设备使用2375端口的标准Docker API
 	url = fmt.Sprintf("http://%s:2375%s", deviceIP, endpoint)
 	req, err = http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
@@ -6104,8 +6098,8 @@ func (a *App) CheckBackupMachineFilesExistBatch(machineNames []string) map[strin
 	return map[string]interface{}{"success": true, "result": result}
 }
 
-func (a *App) ImportBackupMachine(deviceIP, deviceName, machineName string, slot int) map[string]interface{} {
-	log.Printf("[ImportBackupMachine] 开始导入备份云机: deviceIP=%s, deviceName=%s, machineName=%s, slot=%d", deviceIP, deviceName, machineName, slot)
+func (a *App) ImportBackupMachine(deviceIP, deviceName, machineName string, slot int, deviceVersion string) map[string]interface{} {
+	log.Printf("[ImportBackupMachine] 开始导入备份云机: deviceIP=%s, deviceName=%s, machineName=%s, slot=%d, deviceVersion=%s", deviceIP, deviceName, machineName, slot, deviceVersion)
 
 	// 获取设备认证信息（密码）
 	a.devicePasswordsMutex.RLock()
@@ -6177,7 +6171,12 @@ func (a *App) ImportBackupMachine(deviceIP, deviceName, machineName string, slot
 
 	log.Printf("[ImportBackupMachine] 文件大小: %d", fileStat.Size())
 
-	apiURL := fmt.Sprintf("http://%s/android/import", deviceAddr(deviceIP))
+	// V2容器模式使用 /androidV2/import，V3模拟器模式使用 /android/import
+	importPath := "/android/import"
+	if deviceVersion == "v2" {
+		importPath = "/androidV2/import"
+	}
+	apiURL := fmt.Sprintf("http://%s%s", deviceAddr(deviceIP), importPath)
 	log.Printf("[ImportBackupMachine] 请求URL: %s", apiURL)
 
 	client := &http.Client{}

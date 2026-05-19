@@ -832,9 +832,10 @@ type BatchImportTask struct {
 
 // DeviceSlotConfig 设备坑位配置
 type DeviceSlotConfig struct {
-	DeviceIP    string      `json:"device_ip"`
-	DeviceType  string      `json:"device_type"` // "12slots" or "24slots"
-	SlotConfigs []SlotConfig `json:"slot_configs"`
+	DeviceIP      string      `json:"device_ip"`
+	DeviceType    string      `json:"device_type"`    // "12slots" or "24slots"
+	DeviceVersion string      `json:"device_version"`  // "v2", "v3"
+	SlotConfigs  []SlotConfig `json:"slot_configs"`
 }
 
 // SlotConfig 坑位配置
@@ -1063,6 +1064,7 @@ func (s *BatchTaskService) executeBatchImport(task *BatchImportTask) {
 					task.BackupFileName,
 					machineName,
 					slotConfig.SlotNumber,
+					deviceConfig.DeviceVersion,
 				)
 
 				duration := time.Since(startTime).Milliseconds()
