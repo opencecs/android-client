@@ -539,15 +539,17 @@
               {{ scope.row.created ? new Date(scope.row.created).toLocaleString('zh-CN') : scope.row.createTime }}
             </template>
           </el-table-column>
-          <el-table-column prop="status" :label="t('common.statusLabel')" width="90">
+          <el-table-column prop="status" :label="t('common.statusLabel')" width="140">
             <template #default="scope">
-              <el-tag 
+              <el-tag
                 :type="scope.row.status === 'running' ? 'success' : scope.row.status === 'restarting' ? 'warning' : 'info'"
                 size="small"
                 class="status-tag-normal"
               >
                 {{ scope.row.status === 'running' ? t('common.running') : (scope.row.status === 'shutdown' || scope.row.status === 'exited') ? t('common.shutdownStatus') : t('common.restartingStatus') }}
               </el-tag>
+              <el-tag v-if="props.slotStates[scope.row.slotNum] && props.slotStates[scope.row.slotNum].state === 1" type="warning" size="small" style="margin-left:4px">{{ t('common.expiringSoon') }}</el-tag>
+              <el-tag v-if="props.slotStates[scope.row.slotNum] && props.slotStates[scope.row.slotNum].state === 2" type="danger" size="small" style="margin-left:4px">{{ t('common.expired') }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="modelName" :label="t('common.modelLabel')" width="100"></el-table-column>
@@ -1173,6 +1175,10 @@ const props = defineProps({
   loading: {
     type: Boolean,
     default: false
+  },
+  slotStates: {
+    type: Object,
+    default: () => ({})
   },
   isBatchUpgrading: {
     type: Boolean,

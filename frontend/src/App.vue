@@ -6892,6 +6892,56 @@ const handleCleanDisk = async () => {
     }
 }
 
+// 重启主机
+const handleRebootDevice = async () => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要重启设备"${activeDevice.value.ip}"吗？`,
+      '重启后设备需要5~10分钟恢复，请耐心等待',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    collapseRightSidebar()
+
+    await authRetry(activeDevice.value, async (password) => {
+      let headers = {}
+      if (password) {
+        const auth = btoa(`admin:${password}`)
+        headers['Authorization'] = `Basic ${auth}`
+      }
+
+      const response = await fetch(
+        `http://${getDeviceAddr(activeDevice.value.ip)}/server/device/reboot`,
+        {
+          method: 'POST',
+          headers: headers
+        }
+      )
+
+      if (response.status === 401) {
+        throw new Error('Authentication Failed')
+      }
+
+      if (!response.ok) {
+        ElMessage.error('重启失败')
+        return
+      }
+
+      ElMessage.success('重启指令已发送，设备将在5~10分钟内恢复')
+      isViewingDeviceDetails.value = false
+    })
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('重启失败:', error)
+      ElMessage.error('重启失败，请检查网络连接')
+    }
+  }
+}
+
 // 显示认证对话框（批量模式）
 const showAuthDialog = (device, callback) => {
   console.log(`[认证] 收到认证请求: ${device.ip}`)
@@ -15442,9 +15492,31 @@ const executeTask = async (taskId) => {
           return
         }
         
-        // ========== 特殊处理: 上传任务完全并发 ==========
+        // ========== 特殊处理: 上传任务限制并发 ==========
         if (task.type === 'uploadFile') {
-          // 创建所有上传任务(所有文件×所有容器,完全并发)
+          // 限制同一设备并发上传数，避免压垮设备
+          const MAX_CONCURRENT_UPLOADS = 3
+          const runWithLimit = (() => {
+            let running = 0
+            const queue = []
+            const next = () => {
+              if (queue.length > 0 && running < MAX_CONCURRENT_UPLOADS) {
+                running++
+                const { fn, resolve } = queue.shift()
+                fn().finally(() => { running--; next() }).then(resolve)
+              }
+            }
+            return (fn) => new Promise(resolve => {
+              if (running < MAX_CONCURRENT_UPLOADS) {
+                running++
+                fn().finally(() => { running--; next() }).then(resolve)
+              } else {
+                queue.push({ fn, resolve })
+              }
+            })
+          })()
+
+          // 创建所有上传任务(所有文件×所有容器,限制并发)
           const allUploadPromises = targets.map(async (target) => {
             if (task.status === 'canceled') {
               return
@@ -15482,65 +15554,67 @@ const executeTask = async (taskId) => {
                 return result
               }
               
-              // 为每个文件创建所有容器的上传任务
-              const machineUploadPromises = machines.map(async (machine) => {
+              // 为每个文件创建所有容器的上传任务（限制并发）
+              const machineUploadPromises = machines.map((machine) => {
                 const containerID = machine.containerID
                 const displayName = machine.name || machine.id || machine.indexNum || '云机'
-                
-                try {
-                  const fileResult = await authRetry(targetDevice, async (password) => {
-                    return await runUploadWithAuth(password, containerID)
-                  })
-                  
-                  if (fileResult && fileResult.success) {
-                    // 更新全局任务进度
-                    task.completed++
-                    console.log(`文件 ${filePath.split('\\').pop().split('/').pop()} 上传到云机 ${displayName} 成功`)
-                    
-                    // 立即更新设备进度
-                    if (task.deviceProgress && uploadDeviceIP) {
-                      if (!task.deviceProgress[uploadDeviceIP]) {
-                        task.deviceProgress[uploadDeviceIP] = { total: 0, completed: 0, failed: 0 }
+
+                return runWithLimit(async () => {
+                  try {
+                    const fileResult = await authRetry(targetDevice, async (password) => {
+                      return await runUploadWithAuth(password, containerID)
+                    })
+
+                    if (fileResult && fileResult.success) {
+                      // 更新全局任务进度
+                      task.completed++
+                      console.log(`文件 ${filePath.split('\\').pop().split('/').pop()} 上传到云机 ${displayName} 成功`)
+
+                      // 立即更新设备进度
+                      if (task.deviceProgress && uploadDeviceIP) {
+                        if (!task.deviceProgress[uploadDeviceIP]) {
+                          task.deviceProgress[uploadDeviceIP] = { total: 0, completed: 0, failed: 0 }
+                        }
+                        task.deviceProgress[uploadDeviceIP].completed++
                       }
-                      task.deviceProgress[uploadDeviceIP].completed++
+
+                      // APK安装成功
+                      if (isAPK && fileResult.installed && fileResult.uploadPath) {
+                        console.log(`APK安装成功,文件保留在: ${fileResult.uploadPath}`)
+                      }
+
+                      return { success: true, machine: displayName }
+                    } else {
+                      // 更新全局任务进度
+                      task.failed++
+                      console.error(`文件 ${filePath.split('\\').pop().split('/').pop()} 上传到云机 ${displayName} 失败`)
+
+                      // 立即更新设备进度（失败）
+                      if (task.deviceProgress && uploadDeviceIP) {
+                        if (!task.deviceProgress[uploadDeviceIP]) {
+                          task.deviceProgress[uploadDeviceIP] = { total: 0, completed: 0, failed: 0 }
+                        }
+                        task.deviceProgress[uploadDeviceIP].failed++
+                      }
+
+                      return { success: false, machine: displayName, error: fileResult?.message }
                     }
-                    
-                    // APK安装成功
-                    if (isAPK && fileResult.installed && fileResult.uploadPath) {
-                      console.log(`APK安装成功,文件保留在: ${fileResult.uploadPath}`)
-                    }
-                    
-                    return { success: true, machine: displayName }
-                  } else {
+                  } catch (error) {
                     // 更新全局任务进度
                     task.failed++
-                    console.error(`文件 ${filePath.split('\\').pop().split('/').pop()} 上传到云机 ${displayName} 失败`)
-                    
-                    // 立即更新设备进度（失败）
+                    console.error(`上传文件 ${filePath.split('\\').pop().split('/').pop()} 到云机 ${displayName} 失败:`, error.message)
+
+                    // 立即更新设备进度（异常）
                     if (task.deviceProgress && uploadDeviceIP) {
                       if (!task.deviceProgress[uploadDeviceIP]) {
                         task.deviceProgress[uploadDeviceIP] = { total: 0, completed: 0, failed: 0 }
                       }
                       task.deviceProgress[uploadDeviceIP].failed++
                     }
-                    
-                    return { success: false, machine: displayName, error: fileResult?.message }
+
+                    return { success: false, machine: displayName, error: error.message }
                   }
-                } catch (error) {
-                  // 更新全局任务进度
-                  task.failed++
-                  console.error(`上传文件 ${filePath.split('\\').pop().split('/').pop()} 到云机 ${displayName} 失败:`, error.message)
-                  
-                  // 立即更新设备进度（异常）
-                  if (task.deviceProgress && uploadDeviceIP) {
-                    if (!task.deviceProgress[uploadDeviceIP]) {
-                      task.deviceProgress[uploadDeviceIP] = { total: 0, completed: 0, failed: 0 }
-                    }
-                    task.deviceProgress[uploadDeviceIP].failed++
-                  }
-                  
-                  return { success: false, machine: displayName, error: error.message }
-                }
+                })
               })
               
               // 等待该文件的所有容器上传完成
@@ -15551,7 +15625,7 @@ const executeTask = async (taskId) => {
             }
           })
           
-          // 等待所有文件的所有容器上传完成(完全并发)
+          // 等待所有文件的所有容器上传完成(限制并发)
           await Promise.allSettled(allUploadPromises)
           return
         }
@@ -18594,6 +18668,7 @@ const handleBindsTest = async () => {
               :box-images="boxImages"
               :device-filter="deviceFilter"
               :devices-status-cache="devicesStatusCache"
+              :slot-states="slotStates"
               :device-bind-status="deviceBindStatus"
               :device-groups="deviceGroups"
               :device-group-filter="deviceGroupFilter"
@@ -18672,6 +18747,7 @@ const handleBindsTest = async () => {
             @move-device-to-group="moveDeviceToGroup"
             @start-copy-task="handleStartCopyTask"
             :screenshot-cache="screenshotDataCache"
+            :slot-states="slotStates"
             
           />
           
@@ -19022,11 +19098,12 @@ const handleBindsTest = async () => {
 
         <!-- 备份管理 -->
         <el-tab-pane :label="t('menu.backupManagement')" name="backup-management">
-          <BackupManagement 
+          <BackupManagement
             ref="backupManagementRef"
-            :devices="devices" 
+            :devices="devices"
             :device-firmware-info="deviceFirmwareInfo"
             :devices-status-cache="devicesStatusCache"
+            :slot-states="slotStates"
           />
         </el-tab-pane>
 
@@ -21928,15 +22005,27 @@ const handleBindsTest = async () => {
               {{ scope.row.created ? new Date(scope.row.created).toLocaleString('zh-CN') : scope.row.createTime }}
             </template>
           </el-table-column>
-          <el-table-column prop="status" :label="$t('common.status')" width="100" align="center">
+          <el-table-column prop="status" :label="$t('common.status')" width="140" align="center">
             <template #default="scope">
-              <el-tag 
+              <el-tag
                 :type="scope.row.status === 'running' ? 'success' : scope.row.status === 'restarting' ? 'warning' : 'info'"
                 size="small"
                 class="status-tag-normal"
               >
                 {{ scope.row.status === 'running' ? $t('common.running') : (scope.row.status === 'shutdown' || scope.row.status === 'exited') ? $t('common.shutdown') : scope.row.status === 'created' ? $t('common.created') : $t('common.restarting') }}
               </el-tag>
+              <el-tag
+                v-if="slotStates[scope.row.slotNum] && slotStates[scope.row.slotNum].state === 1"
+                type="warning"
+                size="small"
+                style="margin-left: 4px;"
+              >{{ $t('common.expiringSoon') }}</el-tag>
+              <el-tag
+                v-if="slotStates[scope.row.slotNum] && slotStates[scope.row.slotNum].state === 2"
+                type="danger"
+                size="small"
+                style="margin-left: 4px;"
+              >{{ $t('common.expired') }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="modelName" :label="$t('common.model')" width="140">
@@ -22079,6 +22168,9 @@ const handleBindsTest = async () => {
               <div style="text-align: end;">
                 <el-button type="warning" size="small" @click="handleCleanDisk">
                   {{ $t('common.cleanDiskData') }}
+                </el-button>
+                <el-button type="danger" size="small" @click="handleRebootDevice">
+                  {{ $t('common.rebootDevice') }}
                 </el-button>
               </div>
               

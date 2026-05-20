@@ -334,14 +334,26 @@
                           >
                             {{ t('common.backupCount', { count: getBackupCount(i) }) }}
                           </el-tag>
-                          <el-tag 
-                            v-else 
-                            size="small" 
-                            type="info" 
+                          <el-tag
+                            v-else
+                            size="small"
+                            type="info"
                             class="status-tag-normal"
                           >
                             {{ t('common.empty') }}
                           </el-tag>
+                          <el-tag
+                            v-if="props.slotStates[i] && props.slotStates[i].state === 1"
+                            size="small"
+                            type="warning"
+                            class="status-tag-normal"
+                          >{{ t('common.expiringSoon') }}</el-tag>
+                          <el-tag
+                            v-if="props.slotStates[i] && props.slotStates[i].state === 2"
+                            size="small"
+                            type="danger"
+                            class="status-tag-normal"
+                          >{{ t('common.expired') }}</el-tag>
 
                 </div>
               </template>
@@ -469,15 +481,27 @@
                 {{ scope.row.created ? new Date(scope.row.created).toLocaleString('zh-CN') : scope.row.createTime }}
               </template>
             </el-table-column>
-            <el-table-column prop="status" :label="t('common.statusLabel')" width="100" align="center">
+            <el-table-column prop="status" :label="t('common.statusLabel')" width="140" align="center">
               <template #default="scope">
-                <el-tag 
+                <el-tag
                   :type="scope.row.status === 'running' ? 'success' : scope.row.status === 'restarting' ? 'warning' : 'info'"
                   size="small"
                   class="status-tag-normal"
                 >
                   {{ scope.row.status === 'running' ? t('common.running') : (scope.row.status === 'shutdown' || scope.row.status === 'exited') ? t('common.shutdownStatus') : t('common.restartingStatus') }}
                 </el-tag>
+                <el-tag
+                  v-if="props.slotStates[scope.row.slotNum] && props.slotStates[scope.row.slotNum].state === 1"
+                  type="warning"
+                  size="small"
+                  style="margin-left: 4px;"
+                >{{ t('common.expiringSoon') }}</el-tag>
+                <el-tag
+                  v-if="props.slotStates[scope.row.slotNum] && props.slotStates[scope.row.slotNum].state === 2"
+                  type="danger"
+                  size="small"
+                  style="margin-left: 4px;"
+                >{{ t('common.expired') }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="modelName" :label="t('common.modelLabel')" width="100" align="center">
@@ -634,11 +658,23 @@
                   </template>
                 </el-table-column>
                 <el-table-column prop="created" :label="t('common.createTime')" width="160" align="center"></el-table-column>
-                <el-table-column prop="status" :label="t('common.statusLabel')" width="100" align="center">
+                <el-table-column prop="status" :label="t('common.statusLabel')" width="140" align="center">
                   <template #default="scope">
                     <el-tag size="small" :type="scope.row.status === 'running' ? 'success' : 'info'" class="status-tag-normal">
                       {{ scope.row.status === 'running' ? t('common.running') : t('common.shutdownStatus') }}
                     </el-tag>
+                    <el-tag
+                      v-if="props.slotStates[scope.row.slotNum] && props.slotStates[scope.row.slotNum].state === 1"
+                      type="warning"
+                      size="small"
+                      style="margin-left: 4px;"
+                    >{{ t('common.expiringSoon') }}</el-tag>
+                    <el-tag
+                      v-if="props.slotStates[scope.row.slotNum] && props.slotStates[scope.row.slotNum].state === 2"
+                      type="danger"
+                      size="small"
+                      style="margin-left: 4px;"
+                    >{{ t('common.expired') }}</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column prop="modelName" :label="t('common.modelLabel')" width="100" align="center">
@@ -2242,6 +2278,10 @@ const props = defineProps({
   screenshotCache: {
     type: Map,
     default: () => new Map() // Map<"ip_containerName", base64DataURL>
+  },
+  slotStates: {
+    type: Object,
+    default: () => ({})
   }
 })
 

@@ -215,7 +215,7 @@
                                         <span :title="scope.row.image || ''">{{ formatCloudMachineImage(scope.row.image) }}</span>
                                     </template>
                                 </el-table-column>
-                                <el-table-column :label="t('common.statusLabel')" align="center" width="90">
+                                <el-table-column :label="t('common.statusLabel')" align="center" width="130">
                                     <template #default="scope">
                                         <el-tag v-if="cloudStartingName === scope.row.name" type="warning" size="small">
                                             {{ t('backup.starting') }}
@@ -223,6 +223,8 @@
                                         <el-tag v-else :type="scope.row.status === 'running' ? 'success' : 'info'" size="small">
                                             {{ scope.row.status === 'running' ? t('common.running') : t('common.shutdown') }}
                                         </el-tag>
+                                        <el-tag v-if="props.slotStates[scope.row.indexNum] && props.slotStates[scope.row.indexNum].state === 1" type="warning" size="small" style="margin-left:4px">{{ t('common.expiringSoon') }}</el-tag>
+                                        <el-tag v-if="props.slotStates[scope.row.indexNum] && props.slotStates[scope.row.indexNum].state === 2" type="danger" size="small" style="margin-left:4px">{{ t('common.expired') }}</el-tag>
                                     </template>
                                 </el-table-column>
                                 <el-table-column :label="t('backup.operation')" align="center" width="280">
@@ -734,6 +736,10 @@ const props = defineProps({
     devicesStatusCache: {
         type: Map,
         default: () => new Map()
+    },
+    slotStates: {
+        type: Object,
+        default: () => ({})
     }
 })
 
